@@ -34,7 +34,9 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(DvPolicies.Release, p => p.RequireRole(DvRoles.Treasury))
     .AddPolicy(DvPolicies.Close, p => p.RequireRole(DvRoles.Accountant))
     .AddPolicy(DvPolicies.Reject, p => p.RequireRole(DvRoles.Accountant, DvRoles.HeadOfAgency))
-    .AddPolicy(BudgetPolicies.Manage, p => p.RequireRole(BudgetRoles.BudgetOfficer));
+    .AddPolicy(BudgetPolicies.Manage, p => p.RequireRole(BudgetRoles.BudgetOfficer))
+    .AddPolicy(ReportPolicies.View, p => p.RequireRole(
+        BudgetRoles.BudgetOfficer, DvRoles.Accountant, DvRoles.HeadOfAgency));
 
 builder.Services
     .AddControllers()
