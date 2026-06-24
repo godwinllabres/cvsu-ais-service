@@ -52,6 +52,37 @@ public sealed class DisbursementVoucher
     public FundCluster FundCluster => FundingSource.Cluster;
 
     /// <summary>
+    /// Reconstitute an aggregate from persisted state. This is the persistence
+    /// boundary — it restores a state the workflow already validated when the DV
+    /// first reached it, so it deliberately does NOT re-run the transition guards.
+    /// Only the repository should call this.
+    /// </summary>
+    public static DisbursementVoucher Rehydrate(
+        string name,
+        string encoder,
+        Money amount,
+        FundingSource fundingSource,
+        DvLifecycleState lifecycle,
+        DvWorkflowStatus status,
+        string? approvedBy,
+        string? approvedForPaymentBy,
+        bool budgetCertified,
+        bool internalAuditConfirmed,
+        bool endUserConfirmed,
+        bool accountantSigned) =>
+        new(name, encoder, amount, fundingSource)
+        {
+            Lifecycle = lifecycle,
+            Status = status,
+            ApprovedBy = approvedBy,
+            ApprovedForPaymentBy = approvedForPaymentBy,
+            BudgetCertified = budgetCertified,
+            InternalAuditConfirmed = internalAuditConfirmed,
+            EndUserConfirmed = endUserConfirmed,
+            AccountantSigned = accountantSigned,
+        };
+
+    /// <summary>
     /// Attempt a workflow action. Order of enforcement:
     /// 1) the action must be a legal edge out of the current state,
     /// 2) the caller must hold the transition's required role (no bypass), and

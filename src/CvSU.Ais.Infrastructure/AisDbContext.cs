@@ -20,6 +20,7 @@ public sealed class AisDbContext(DbContextOptions<AisDbContext> options) : DbCon
     public DbSet<BudgetLedgerRow> BudgetLedger => Set<BudgetLedgerRow>();
     public DbSet<FundingSourceRow> FundingSources => Set<FundingSourceRow>();
     public DbSet<VoucherCounter> VoucherCounters => Set<VoucherCounter>();
+    public DbSet<DisbursementVoucherRow> DisbursementVouchers => Set<DisbursementVoucherRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +96,25 @@ public sealed class AisDbContext(DbContextOptions<AisDbContext> options) : DbCon
             e.ToTable("voucher_counter");
             e.HasKey(x => x.Series);
             e.Property(x => x.Series).HasMaxLength(64);
+        });
+
+        modelBuilder.Entity<DisbursementVoucherRow>(e =>
+        {
+            e.ToTable("disbursement_voucher");
+            e.HasKey(x => x.Name);
+            e.Property(x => x.Name).HasMaxLength(140);
+            e.Property(x => x.Encoder).HasMaxLength(140);
+            e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.Property(x => x.FundingSourceCode).HasMaxLength(20);
+            e.Property(x => x.Lifecycle).HasMaxLength(16);
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.ApprovedBy).HasMaxLength(140);
+            e.Property(x => x.ApprovedForPaymentBy).HasMaxLength(140);
+            e.HasIndex(x => x.Status);
+            e.HasOne<FundingSourceRow>()
+                .WithMany()
+                .HasForeignKey(x => x.FundingSourceCode)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

@@ -15,6 +15,7 @@ public sealed class AisDbContextFactory : IDesignTimeDbContextFactory<AisDbConte
     {
         var options = new DbContextOptionsBuilder<AisDbContext>()
             .UseNpgsql("Host=localhost;Port=5432;Database=cvsu_ais;Username=postgres;Password=postgres")
+            .UseSnakeCaseNamingConvention()
             .Options;
 
         return new AisDbContext(options);

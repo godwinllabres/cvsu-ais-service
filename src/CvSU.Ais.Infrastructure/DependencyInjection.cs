@@ -1,6 +1,7 @@
 using CvSU.Ais.Application.Abstractions;
 using CvSU.Ais.Infrastructure.Interceptors;
 using CvSU.Ais.Infrastructure.Numbering;
+using CvSU.Ais.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,9 +18,13 @@ public static class DependencyInjection
         services.AddDbContext<AisDbContext>((sp, options) =>
             options
                 .UseNpgsql(connectionString)
+                .UseSnakeCaseNamingConvention()
                 .AddInterceptors(sp.GetRequiredService<LedgerImmutabilityInterceptor>()));
 
         services.AddScoped<IVoucherNumberGenerator, GaplessVoucherNumberService>();
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IFundingSourceCatalog, FundingSourceCatalog>();
+        services.AddScoped<IDisbursementVoucherRepository, DisbursementVoucherRepository>();
 
         return services;
     }

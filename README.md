@@ -9,9 +9,10 @@ The original is a working, COA-audit-traced Frappe app. This rebuild is a
 double-ledger core and a single, role-gated disbursement workflow — and rebuilds
 them with the domain modeled the way government fund accounting actually works.
 
-> **Status:** Phase 1 walking skeleton. The domain core and its executable
-> invariant suite are complete and green (**45/45**). Infrastructure (EF Core +
-> Postgres) and the HTTP API are next — see the roadmap.
+> **Status:** Runs end-to-end. Domain core + invariant suite, EF Core + Postgres
+> persistence, and an HTTP API with role-gated DV transitions are all in place.
+> **52 tests green** — 45 pure-domain invariants + 7 integration tests that run
+> against a real PostgreSQL container (Testcontainers). See the roadmap.
 
 ---
 
@@ -75,20 +76,48 @@ enforced in Python, now stack-agnostic and fast:
 
 ## Running it
 
-Prerequisites: **.NET SDK 10**.
+Prerequisites: **.NET SDK 10**; **Docker** for the integration tests and Compose.
 
 ```bash
-dotnet test          # run the invariant suite (45 tests)
-dotnet build         # build the whole solution
+dotnet build                                   # build the whole solution
+dotnet test tests/CvSU.Ais.Domain.Tests        # 45 fast pure-domain invariants (no Docker)
+dotnet test tests/CvSU.Ais.Integration.Tests   # 7 tests vs a real Postgres (Testcontainers)
 ```
+
+Run the API + database together:
+
+```bash
+docker compose up --build      # api on http://localhost:8080, postgres on 5432
+```
+
+The API applies EF migrations on startup. Authentication is a development header
+scheme — pass `X-User` and a comma-separated `X-Roles` (standing in for an
+identity provider) so the role-gated workflow can be driven from `curl`:
+
+```bash
+# Create a fully-certified draft as a clerk (gapless number assigned)
+curl -X POST http://localhost:8080/api/disbursement-vouchers \
+  -H "X-User: clerk@cvsu" -H "X-Roles: Accounting Clerk" -H "Content-Type: application/json" \
+  -d '{"fiscalYear":2026,"amount":5000,"fundingSourceCode":"01101101",
+       "budgetCertified":true,"internalAuditConfirmed":true,"endUserConfirmed":true,"accountantSigned":true}'
+
+# Submit (clerk) → Approve (a different accountant — SoD enforced server-side)
+curl -X POST http://localhost:8080/api/disbursement-vouchers/DV-2026-00001/submit  -H "X-User: clerk@cvsu"      -H "X-Roles: Accounting Clerk"
+curl -X POST http://localhost:8080/api/disbursement-vouchers/DV-2026-00001/approve -H "X-User: accountant@cvsu" -H "X-Roles: Accountant"
+```
+
+A caller without the required role is rejected at the HTTP boundary (403); the
+same rule is re-checked in the domain, so the API is defence-in-depth, not the
+source of truth.
 
 ## Roadmap
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Domain ledger core + DV state machine + invariant suite | ✅ done |
-| — | Infrastructure: EF Core + Postgres, CHECK constraints, immutability `SaveChanges` interceptor, gapless voucher-number service, `FOR UPDATE`/`SERIALIZABLE` ceiling enforcement | ⏳ next |
-| — | API: per-transition ASP.NET Core authorization policies, command handlers, `Program.cs` DI; Docker Compose (api + postgres) | ⏳ |
+| 2 | Infrastructure: EF Core + Postgres, CHECK constraints, immutability `SaveChanges` interceptor, gapless voucher-number service (counter + advisory lock), snake_case schema + migration | ✅ done |
+| 3 | API: per-transition ASP.NET Core authorization policies, DV command handlers, `Program.cs` DI, problem-details mapping; Docker Compose (api + postgres); Testcontainers integration tests | ✅ done |
+| — | Budget execution-cycle endpoints (Appropriation/Allotment/ORS), DV→ledger posting wiring on Post/Release | ⏳ next |
 | — | Reports (RAOD/RAPAL/trial balance) + official DV print/PDF | ⏳ |
 
 The production-migration concerns from the full plan (shadow-reconcile against
