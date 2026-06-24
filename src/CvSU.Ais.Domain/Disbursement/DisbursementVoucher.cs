@@ -1,5 +1,6 @@
 using CvSU.Ais.Domain.Common;
 using CvSU.Ais.Domain.Funds;
+using CvSU.Ais.Domain.Ledgers;
 
 namespace CvSU.Ais.Domain.Disbursement;
 
@@ -35,6 +36,16 @@ public sealed class DisbursementVoucher
     public bool EndUserConfirmed { get; set; }
     public bool AccountantSigned { get; set; }
 
+    // The UACS budget line this DV charges, captured during the encode phase. It
+    // is required before Posting, where the accrual GL and budget Disbursement
+    // entries are built from it.
+    public string? PapCode { get; set; }
+    public string? LocationCode { get; set; }
+    public ExpenseClass? ExpenseClass { get; set; }
+    public string? ObjectAccountCode { get; set; }
+
+    private const string DocType = "AIS Disbursement Voucher";
+
     public DisbursementVoucher(string name, string encoder, Money amount, FundingSource fundingSource)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -69,7 +80,11 @@ public sealed class DisbursementVoucher
         bool budgetCertified,
         bool internalAuditConfirmed,
         bool endUserConfirmed,
-        bool accountantSigned) =>
+        bool accountantSigned,
+        string? papCode,
+        string? locationCode,
+        ExpenseClass? expenseClass,
+        string? objectAccountCode) =>
         new(name, encoder, amount, fundingSource)
         {
             Lifecycle = lifecycle,
@@ -80,7 +95,55 @@ public sealed class DisbursementVoucher
             InternalAuditConfirmed = internalAuditConfirmed,
             EndUserConfirmed = endUserConfirmed,
             AccountantSigned = accountantSigned,
+            PapCode = papCode,
+            LocationCode = locationCode,
+            ExpenseClass = expenseClass,
+            ObjectAccountCode = objectAccountCode,
         };
+
+    /// <summary>Build the UACS line this DV charges; throws
+    /// <see cref="UacsIncompleteException"/> if the encoder left it incomplete.</summary>
+    public UacsCode RequireBudgetLine()
+    {
+        if (ExpenseClass is null)
+            throw new UacsIncompleteException(
+                "DV budget line is incomplete: expense class is required before posting.");
+
+        // The UacsCode constructor rejects any missing string dimension.
+        return new UacsCode(FundingSource, PapCode!, LocationCode!, ExpenseClass.Value, ObjectAccountCode!);
+    }
+
+    /// <summary>Accrual posting fired on Post: DR expense object account / CR accounts payable.</summary>
+    public GlPostingBatch BuildAccrualPosting(DateOnly postingDate)
+    {
+        var uacs = RequireBudgetLine();
+        var fiscalYear = postingDate.Year;
+
+        var batch = new GlPostingBatch()
+            .Add(new GeneralLedgerEntry(postingDate, fiscalYear, uacs.ObjectAccountCode, Amount, Money.Zero, DocType, Name, "Accrual of payable"))
+            .Add(new GeneralLedgerEntry(postingDate, fiscalYear, GlAccounts.AccountsPayable, Money.Zero, Amount, DocType, Name, "Accrual of payable"));
+
+        batch.EnsureBalanced();
+        return batch;
+    }
+
+    /// <summary>Cash disbursement fired on Release: DR accounts payable / CR Cash-MDS,
+    /// plus the budget-registry Disbursement entry against this DV's UACS line.</summary>
+    public CashDisbursement BuildCashDisbursement(DateOnly postingDate)
+    {
+        var uacs = RequireBudgetLine();
+        var fiscalYear = postingDate.Year;
+
+        var gl = new GlPostingBatch()
+            .Add(new GeneralLedgerEntry(postingDate, fiscalYear, GlAccounts.AccountsPayable, Amount, Money.Zero, DocType, Name, "Cash disbursement"))
+            .Add(new GeneralLedgerEntry(postingDate, fiscalYear, GlAccounts.CashMdsRegular, Money.Zero, Amount, DocType, Name, "Cash disbursement"));
+        gl.EnsureBalanced();
+
+        var budgetEntry = new BudgetLedgerEntry(
+            postingDate, fiscalYear, uacs, BudgetEntryType.Disbursement, Amount, DocType, Name);
+
+        return new CashDisbursement(gl, budgetEntry);
+    }
 
     /// <summary>
     /// Attempt a workflow action. Order of enforcement:

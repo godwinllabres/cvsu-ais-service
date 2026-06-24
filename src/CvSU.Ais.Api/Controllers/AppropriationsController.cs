@@ -34,6 +34,10 @@ public sealed class AppropriationsController(BudgetExecutionService budget) : Co
         return Ok(view);
     }
 
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<AppropriationView>>> List(CancellationToken cancellationToken) =>
+        Ok(await budget.ListAppropriationsAsync(cancellationToken));
+
     [HttpPost("{appropriationId}/allotments")]
     public async Task<ActionResult<AllotmentView>> Allot(
         string appropriationId, AllotRequest request, CancellationToken cancellationToken)

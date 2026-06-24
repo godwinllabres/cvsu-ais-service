@@ -2,6 +2,7 @@ using System.Security.Claims;
 using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.DisbursementVouchers;
 using CvSU.Ais.Domain.Disbursement;
+using CvSU.Ais.Domain.Funds;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,6 +17,10 @@ public sealed class DisbursementVouchersController(DisbursementVoucherService se
         int FiscalYear,
         decimal Amount,
         string FundingSourceCode,
+        string? PapCode = null,
+        string? LocationCode = null,
+        ExpenseClass? ExpenseClass = null,
+        string? ObjectAccountCode = null,
         bool BudgetCertified = false,
         bool InternalAuditConfirmed = false,
         bool EndUserConfirmed = false,
@@ -26,13 +31,26 @@ public sealed class DisbursementVouchersController(DisbursementVoucherService se
     public async Task<ActionResult<DvStateView>> Create(CreateDvRequest request, CancellationToken cancellationToken)
     {
         var command = new CreateDvCommand(
-            CurrentUser, request.FiscalYear, request.Amount, request.FundingSourceCode,
-            request.BudgetCertified, request.InternalAuditConfirmed,
-            request.EndUserConfirmed, request.AccountantSigned);
+            Encoder: CurrentUser,
+            FiscalYear: request.FiscalYear,
+            Amount: request.Amount,
+            FundingSourceCode: request.FundingSourceCode,
+            PapCode: request.PapCode,
+            LocationCode: request.LocationCode,
+            ExpenseClass: request.ExpenseClass,
+            ObjectAccountCode: request.ObjectAccountCode,
+            BudgetCertified: request.BudgetCertified,
+            InternalAuditConfirmed: request.InternalAuditConfirmed,
+            EndUserConfirmed: request.EndUserConfirmed,
+            AccountantSigned: request.AccountantSigned);
 
         var view = await service.CreateAsync(command, cancellationToken);
         return CreatedAtAction(nameof(Get), new { name = view.Name }, view);
     }
+
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<DvStateView>>> List(CancellationToken cancellationToken) =>
+        Ok(await service.ListAsync(cancellationToken));
 
     [HttpGet("{name}")]
     public async Task<ActionResult<DvStateView>> Get(string name, CancellationToken cancellationToken) =>

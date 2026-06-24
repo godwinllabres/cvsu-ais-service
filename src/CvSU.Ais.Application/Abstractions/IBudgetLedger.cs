@@ -17,8 +17,14 @@ public interface IBudgetLedger
 
     Task<AllotmentSnapshot?> LockAllotmentAsync(string allotmentId, CancellationToken cancellationToken = default);
 
+    /// <summary>Read-only list of appropriations with their running balances (no lock).</summary>
+    Task<IReadOnlyList<AppropriationBalance>> ListAppropriationsAsync(CancellationToken cancellationToken = default);
+
     Task AppendAsync(BudgetLedgerEntry entry, CancellationToken cancellationToken = default);
 }
+
+/// <summary>An appropriation's id and running balances, computed from the ledger.</summary>
+public sealed record AppropriationBalance(string Id, Money FinalAppropriation, Money Allotted);
 
 /// <summary>Locked view of an appropriation's running balance, rebuilt from the ledger.</summary>
 public sealed record AppropriationSnapshot(

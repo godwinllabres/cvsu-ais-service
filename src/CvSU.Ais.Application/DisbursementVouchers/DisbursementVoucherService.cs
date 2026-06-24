@@ -1,6 +1,7 @@
 using CvSU.Ais.Application.Abstractions;
 using CvSU.Ais.Domain.Common;
 using CvSU.Ais.Domain.Disbursement;
+using CvSU.Ais.Domain.Funds;
 
 namespace CvSU.Ais.Application.DisbursementVouchers;
 
@@ -11,6 +12,10 @@ public sealed record CreateDvCommand(
     int FiscalYear,
     decimal Amount,
     string FundingSourceCode,
+    string? PapCode = null,
+    string? LocationCode = null,
+    ExpenseClass? ExpenseClass = null,
+    string? ObjectAccountCode = null,
     bool BudgetCertified = false,
     bool InternalAuditConfirmed = false,
     bool EndUserConfirmed = false,
@@ -40,6 +45,8 @@ public sealed class DisbursementVoucherService(
     IDisbursementVoucherRepository vouchers,
     IFundingSourceCatalog fundingSources,
     IVoucherNumberGenerator numbers,
+    IGeneralLedger generalLedger,
+    IBudgetLedger budgetLedger,
     IUnitOfWork unitOfWork)
 {
     public Task<DvStateView> CreateAsync(CreateDvCommand command, CancellationToken cancellationToken = default) =>
@@ -56,11 +63,18 @@ public sealed class DisbursementVoucherService(
                 InternalAuditConfirmed = command.InternalAuditConfirmed,
                 EndUserConfirmed = command.EndUserConfirmed,
                 AccountantSigned = command.AccountantSigned,
+                PapCode = command.PapCode,
+                LocationCode = command.LocationCode,
+                ExpenseClass = command.ExpenseClass,
+                ObjectAccountCode = command.ObjectAccountCode,
             };
 
             await vouchers.AddAsync(voucher, token);
             return DvStateView.From(voucher);
         }, cancellationToken);
+
+    public Task<IReadOnlyList<DvStateView>> ListAsync(CancellationToken cancellationToken = default) =>
+        vouchers.ListAsync(cancellationToken);
 
     public async Task<DvStateView> GetAsync(string name, CancellationToken cancellationToken = default)
     {
@@ -69,15 +83,35 @@ public sealed class DisbursementVoucherService(
         return DvStateView.From(voucher);
     }
 
-    public async Task<DvStateView> FireAsync(
-        string name, DvAction action, TransitionContext context, CancellationToken cancellationToken = default)
-    {
-        var voucher = await vouchers.FindAsync(name, cancellationToken)
-            ?? throw new KeyNotFoundException($"DV '{name}' not found.");
+    /// <summary>
+    /// Fire a workflow action and, where the transition is a posting point, write
+    /// the ledgers in the same transaction so the status change and its postings
+    /// commit atomically. Post = accrual GL; Release = cash GL + budget Disbursement.
+    /// </summary>
+    public Task<DvStateView> FireAsync(
+        string name, DvAction action, TransitionContext context, CancellationToken cancellationToken = default) =>
+        unitOfWork.ExecuteInTransactionAsync(async token =>
+        {
+            var voucher = await vouchers.FindAsync(name, token)
+                ?? throw new KeyNotFoundException($"DV '{name}' not found.");
 
-        voucher.Fire(action, context);
+            voucher.Fire(action, context);
 
-        await vouchers.UpdateAsync(voucher, cancellationToken);
-        return DvStateView.From(voucher);
-    }
+            switch (action)
+            {
+                case DvAction.Post:
+                    await generalLedger.AppendBatchAsync(voucher.BuildAccrualPosting(Today), token);
+                    break;
+                case DvAction.Release:
+                    var disbursement = voucher.BuildCashDisbursement(Today);
+                    await generalLedger.AppendBatchAsync(disbursement.GeneralLedger, token);
+                    await budgetLedger.AppendAsync(disbursement.BudgetEntry, token);
+                    break;
+            }
+
+            await vouchers.UpdateAsync(voucher, token);
+            return DvStateView.From(voucher);
+        }, cancellationToken);
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
 }

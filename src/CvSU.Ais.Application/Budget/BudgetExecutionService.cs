@@ -58,6 +58,16 @@ public sealed class BudgetExecutionService(
                 appropriation.AllottedAmount.Amount, appropriation.UnallottedBalance.Amount);
         }, cancellationToken);
 
+    public async Task<IReadOnlyList<AppropriationView>> ListAppropriationsAsync(CancellationToken cancellationToken = default)
+    {
+        var balances = await budgetLedger.ListAppropriationsAsync(cancellationToken);
+        return balances
+            .Select(b => new AppropriationView(
+                b.Id, b.FinalAppropriation.Amount, b.Allotted.Amount,
+                (b.FinalAppropriation - b.Allotted).Amount))
+            .ToList();
+    }
+
     public Task<AllotmentView> AllotAsync(
         string appropriationId, decimal amount, CancellationToken cancellationToken = default) =>
         unitOfWork.ExecuteInTransactionAsync(async token =>

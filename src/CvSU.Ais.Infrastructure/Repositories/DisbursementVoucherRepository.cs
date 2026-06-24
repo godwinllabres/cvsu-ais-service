@@ -1,4 +1,5 @@
 using CvSU.Ais.Application.Abstractions;
+using CvSU.Ais.Application.DisbursementVouchers;
 using CvSU.Ais.Domain.Common;
 using CvSU.Ais.Domain.Disbursement;
 using CvSU.Ais.Infrastructure.Persistence;
@@ -25,7 +26,19 @@ public sealed class DisbursementVoucherRepository(AisDbContext db, IFundingSourc
             Enum.Parse<DvLifecycleState>(row.Lifecycle),
             Enum.Parse<DvWorkflowStatus>(row.Status),
             row.ApprovedBy, row.ApprovedForPaymentBy,
-            row.BudgetCertified, row.InternalAuditConfirmed, row.EndUserConfirmed, row.AccountantSigned);
+            row.BudgetCertified, row.InternalAuditConfirmed, row.EndUserConfirmed, row.AccountantSigned,
+            row.PapCode, row.LocationCode, row.ExpenseClass, row.ObjectAccountCode);
+    }
+
+    public async Task<IReadOnlyList<DvStateView>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        return await db.Set<DisbursementVoucherRow>()
+            .Join(db.Set<FundingSourceRow>(),
+                dv => dv.FundingSourceCode, fs => fs.Code,
+                (dv, fs) => new DvStateView(
+                    dv.Name, dv.Lifecycle, dv.Status, fs.ClusterCode, dv.ApprovedBy, dv.ApprovedForPaymentBy))
+            .OrderBy(v => v.Name)
+            .ToListAsync(cancellationToken);
     }
 
     public async Task AddAsync(DisbursementVoucher voucher, CancellationToken cancellationToken = default)
@@ -58,6 +71,10 @@ public sealed class DisbursementVoucherRepository(AisDbContext db, IFundingSourc
         InternalAuditConfirmed = dv.InternalAuditConfirmed,
         EndUserConfirmed = dv.EndUserConfirmed,
         AccountantSigned = dv.AccountantSigned,
+        PapCode = dv.PapCode,
+        LocationCode = dv.LocationCode,
+        ExpenseClass = dv.ExpenseClass,
+        ObjectAccountCode = dv.ObjectAccountCode,
     };
 
     private static void CopyState(DisbursementVoucher dv, DisbursementVoucherRow row)
@@ -70,5 +87,9 @@ public sealed class DisbursementVoucherRepository(AisDbContext db, IFundingSourc
         row.InternalAuditConfirmed = dv.InternalAuditConfirmed;
         row.EndUserConfirmed = dv.EndUserConfirmed;
         row.AccountantSigned = dv.AccountantSigned;
+        row.PapCode = dv.PapCode;
+        row.LocationCode = dv.LocationCode;
+        row.ExpenseClass = dv.ExpenseClass;
+        row.ObjectAccountCode = dv.ObjectAccountCode;
     }
 }

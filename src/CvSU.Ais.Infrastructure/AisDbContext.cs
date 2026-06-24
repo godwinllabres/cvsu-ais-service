@@ -110,6 +110,10 @@ public sealed class AisDbContext(DbContextOptions<AisDbContext> options) : DbCon
             e.Property(x => x.Status).HasMaxLength(32);
             e.Property(x => x.ApprovedBy).HasMaxLength(140);
             e.Property(x => x.ApprovedForPaymentBy).HasMaxLength(140);
+            e.Property(x => x.PapCode).HasMaxLength(40);
+            e.Property(x => x.LocationCode).HasMaxLength(40);
+            e.Property(x => x.ExpenseClass).HasConversion<string>().HasMaxLength(8);
+            e.Property(x => x.ObjectAccountCode).HasMaxLength(20);
             e.HasIndex(x => x.Status);
             e.HasOne<FundingSourceRow>()
                 .WithMany()

@@ -1,3 +1,5 @@
+using CvSU.Ais.Domain.Funds;
+
 namespace CvSU.Ais.Infrastructure.Persistence;
 
 /// <summary>Disbursement Voucher as stored. Mutable (it transitions), unlike the
@@ -16,4 +18,10 @@ public sealed class DisbursementVoucherRow
     public bool InternalAuditConfirmed { get; set; }
     public bool EndUserConfirmed { get; set; }
     public bool AccountantSigned { get; set; }
+
+    // The UACS budget line the DV charges (nullable until the encoder fills it in).
+    public string? PapCode { get; set; }
+    public string? LocationCode { get; set; }
+    public ExpenseClass? ExpenseClass { get; set; }
+    public string? ObjectAccountCode { get; set; }
 }

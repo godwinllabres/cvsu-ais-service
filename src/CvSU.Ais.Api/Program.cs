@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Api.ErrorHandling;
 using CvSU.Ais.Application;
@@ -6,6 +7,8 @@ using CvSU.Ais.Domain.Disbursement;
 using CvSU.Ais.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
+
+const string SpaCorsPolicy = "spa";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,9 +36,18 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(DvPolicies.Reject, p => p.RequireRole(DvRoles.Accountant, DvRoles.HeadOfAgency))
     .AddPolicy(BudgetPolicies.Manage, p => p.RequireRole(BudgetRoles.BudgetOfficer));
 
-builder.Services.AddControllers();
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
+
+// Dev CORS: the SPA runs on a different origin and sends X-User / X-Roles headers.
+// No cookies are used, so any-origin is safe here; tighten for production.
+builder.Services.AddCors(options =>
+    options.AddPolicy(SpaCorsPolicy, policy =>
+        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
 
@@ -43,6 +55,7 @@ app.UseExceptionHandler();
 
 await ApplyMigrationsAsync(app);
 
+app.UseCors(SpaCorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

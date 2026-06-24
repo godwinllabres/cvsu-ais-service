@@ -72,6 +72,27 @@ public sealed class BudgetLedgerRepository(AisDbContext db, IFundingSourceCatalo
             allotmentId, appropriation, new Money(amount), header.PostingDate, new Money(obligated));
     }
 
+    public async Task<IReadOnlyList<AppropriationBalance>> ListAppropriationsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var finals = await db.BudgetLedger
+            .Where(e => e.EntryType == BudgetEntryType.Appropriation && e.AppropriationId != null)
+            .GroupBy(e => e.AppropriationId!)
+            .Select(g => new { Id = g.Key, Final = g.Sum(x => x.Credit) })
+            .ToListAsync(cancellationToken);
+
+        var allotted = await db.BudgetLedger
+            .Where(e => e.EntryType == BudgetEntryType.Allotment && e.AppropriationId != null)
+            .GroupBy(e => e.AppropriationId!)
+            .Select(g => new { Id = g.Key, Allotted = g.Sum(x => x.Debit) })
+            .ToDictionaryAsync(x => x.Id, x => x.Allotted, cancellationToken);
+
+        return finals
+            .Select(f => new AppropriationBalance(
+                f.Id, new Money(f.Final), new Money(allotted.GetValueOrDefault(f.Id))))
+            .ToList();
+    }
+
     public async Task AppendAsync(BudgetLedgerEntry entry, CancellationToken cancellationToken = default)
     {
         db.Add(entry.ToRow());
