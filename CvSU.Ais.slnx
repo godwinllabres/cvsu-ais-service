@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CvSU.Ais.Api/CvSU.Ais.Api.csproj" />
+    <Project Path="src/CvSU.Ais.Application/CvSU.Ais.Application.csproj" />
+    <Project Path="src/CvSU.Ais.Domain/CvSU.Ais.Domain.csproj" />
+    <Project Path="src/CvSU.Ais.Infrastructure/CvSU.Ais.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CvSU.Ais.Domain.Tests/CvSU.Ais.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

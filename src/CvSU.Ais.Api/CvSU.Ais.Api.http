@@ -1,0 +1,6 @@
+@CvSU.Ais.Api_HostAddress = http://localhost:5186
+
+GET {{CvSU.Ais.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
