@@ -35,9 +35,10 @@ public sealed class DisbursementVoucherRepository(AisDbContext db, IFundingSourc
         return await db.Set<DisbursementVoucherRow>()
             .Join(db.Set<FundingSourceRow>(),
                 dv => dv.FundingSourceCode, fs => fs.Code,
-                (dv, fs) => new DvStateView(
-                    dv.Name, dv.Lifecycle, dv.Status, fs.ClusterCode, dv.ApprovedBy, dv.ApprovedForPaymentBy))
-            .OrderBy(v => v.Name)
+                (dv, fs) => new { Dv = dv, fs.ClusterCode })
+            .OrderBy(x => x.Dv.Name)
+            .Select(x => new DvStateView(
+                x.Dv.Name, x.Dv.Lifecycle, x.Dv.Status, x.ClusterCode, x.Dv.ApprovedBy, x.Dv.ApprovedForPaymentBy))
             .ToListAsync(cancellationToken);
     }
 
