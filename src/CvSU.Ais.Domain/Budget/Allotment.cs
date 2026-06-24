@@ -35,6 +35,16 @@ public sealed class Allotment
     public Money ObligatedAmount => _obligated;
     public Money UnobligatedBalance => Amount - _obligated;
 
+    /// <summary>Reconstitute from persisted state, seeding the running obligated
+    /// total read back from the budget ledger (the persistence boundary).</summary>
+    public static Allotment Rehydrate(
+        string id, Appropriation appropriation, Money amount, DateOnly releaseDate, Money obligatedSoFar)
+    {
+        var allotment = new Allotment(id, appropriation, amount, releaseDate);
+        allotment._obligated = obligatedSoFar;
+        return allotment;
+    }
+
     /// <summary>The budget-ledger row recorded when this allotment is submitted.</summary>
     public BudgetLedgerEntry CreatePosting(DateOnly postingDate) =>
         new(postingDate, Appropriation.FiscalYear, Appropriation.Uacs, BudgetEntryType.Allotment,

@@ -37,6 +37,18 @@ public sealed class Appropriation
     public Money AllottedAmount => _allotted;
     public Money UnallottedBalance => FinalAppropriation - _allotted;
 
+    /// <summary>Reconstitute from persisted state — seeds the running allotted
+    /// total read back from the budget ledger so ceiling checks remain correct
+    /// across requests. The persistence boundary; callers other than the
+    /// repository should not need this.</summary>
+    public static Appropriation Rehydrate(
+        string id, int fiscalYear, UacsCode uacs, Money finalAppropriation, Money allottedSoFar)
+    {
+        var appropriation = new Appropriation(id, fiscalYear, uacs, finalAppropriation);
+        appropriation._allotted = allottedSoFar;
+        return appropriation;
+    }
+
     /// <summary>The budget-ledger row recorded when this appropriation is submitted.</summary>
     public BudgetLedgerEntry CreatePosting(DateOnly postingDate) =>
         new(postingDate, FiscalYear, Uacs, BudgetEntryType.Appropriation,

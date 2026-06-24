@@ -1,6 +1,7 @@
 using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Api.ErrorHandling;
 using CvSU.Ais.Application;
+using CvSU.Ais.Domain.Budget;
 using CvSU.Ais.Domain.Disbursement;
 using CvSU.Ais.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
@@ -29,7 +30,8 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(DvPolicies.Post, p => p.RequireRole(DvRoles.Accountant))
     .AddPolicy(DvPolicies.Release, p => p.RequireRole(DvRoles.Treasury))
     .AddPolicy(DvPolicies.Close, p => p.RequireRole(DvRoles.Accountant))
-    .AddPolicy(DvPolicies.Reject, p => p.RequireRole(DvRoles.Accountant, DvRoles.HeadOfAgency));
+    .AddPolicy(DvPolicies.Reject, p => p.RequireRole(DvRoles.Accountant, DvRoles.HeadOfAgency))
+    .AddPolicy(BudgetPolicies.Manage, p => p.RequireRole(BudgetRoles.BudgetOfficer));
 
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();

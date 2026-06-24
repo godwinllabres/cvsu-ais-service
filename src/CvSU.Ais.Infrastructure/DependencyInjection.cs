@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IFundingSourceCatalog, FundingSourceCatalog>();
         services.AddScoped<IDisbursementVoucherRepository, DisbursementVoucherRepository>();
+        services.AddScoped<IBudgetLedger, BudgetLedgerRepository>();
 
         return services;
     }
