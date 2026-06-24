@@ -21,7 +21,8 @@ public sealed record CreateDvCommand(
     bool EndUserConfirmed = false,
     bool AccountantSigned = false);
 
-/// <summary>A read model of a DV's lifecycle state, returned after every command.</summary>
+/// <summary>A read model of a DV's lifecycle state, returned after every command
+/// and in list views — deliberately thin (a table row).</summary>
 public sealed record DvStateView(
     string Name,
     string Lifecycle,
@@ -33,6 +34,65 @@ public sealed record DvStateView(
     public static DvStateView From(DisbursementVoucher dv) => new(
         dv.Name, dv.Lifecycle.ToString(), dv.Status.ToString(), dv.FundCluster.Code,
         dv.ApprovedBy, dv.ApprovedForPaymentBy);
+}
+
+/// <summary>
+/// The full read model for a single DV — everything a clerk or approver needs to
+/// process it: the amount, the fund + UACS budget line, the certifications, and
+/// the lifecycle/approval state. The detail endpoint returns this so the UI can
+/// show <em>what</em> is being paid, not just its status.
+/// </summary>
+public sealed record DvDetailView(
+    string Name,
+    int FiscalYear,
+    string Encoder,
+    decimal Amount,
+    string Lifecycle,
+    string Status,
+    string FundingSourceCode,
+    string FundClusterCode,
+    string FundClusterName,
+    string? PapCode,
+    string? LocationCode,
+    string? ExpenseClass,
+    string? ObjectAccountCode,
+    bool BudgetCertified,
+    bool InternalAuditConfirmed,
+    bool EndUserConfirmed,
+    bool AccountantSigned,
+    string? ApprovedBy,
+    string? ApprovedForPaymentBy)
+{
+    public static DvDetailView From(DisbursementVoucher dv) => new(
+        dv.Name,
+        FiscalYearFromName(dv.Name),
+        dv.Encoder,
+        dv.Amount.Amount,
+        dv.Lifecycle.ToString(),
+        dv.Status.ToString(),
+        dv.FundingSource.Code,
+        dv.FundCluster.Code,
+        dv.FundCluster.Name,
+        dv.PapCode,
+        dv.LocationCode,
+        dv.ExpenseClass?.ToString(),
+        dv.ObjectAccountCode,
+        dv.BudgetCertified,
+        dv.InternalAuditConfirmed,
+        dv.EndUserConfirmed,
+        dv.AccountantSigned,
+        dv.ApprovedBy,
+        dv.ApprovedForPaymentBy);
+
+    /// <summary>The fiscal year lives in the gapless DV number (<c>DV-YYYY-#####</c>);
+    /// parse it back for display rather than carrying a duplicate column.</summary>
+    private static int FiscalYearFromName(string name)
+    {
+        var parts = name.Split('-');
+        return parts.Length >= 2 && int.TryParse(parts[1], out var year)
+            ? year
+            : 0;
+    }
 }
 
 /// <summary>
@@ -76,11 +136,11 @@ public sealed class DisbursementVoucherService(
     public Task<IReadOnlyList<DvStateView>> ListAsync(CancellationToken cancellationToken = default) =>
         vouchers.ListAsync(cancellationToken);
 
-    public async Task<DvStateView> GetAsync(string name, CancellationToken cancellationToken = default)
+    public async Task<DvDetailView> GetAsync(string name, CancellationToken cancellationToken = default)
     {
         var voucher = await vouchers.FindAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"DV '{name}' not found.");
-        return DvStateView.From(voucher);
+        return DvDetailView.From(voucher);
     }
 
     /// <summary>

@@ -53,7 +53,7 @@ public sealed class DisbursementVouchersController(DisbursementVoucherService se
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpGet("{name}")]
-    public async Task<ActionResult<DvStateView>> Get(string name, CancellationToken cancellationToken) =>
+    public async Task<ActionResult<DvDetailView>> Get(string name, CancellationToken cancellationToken) =>
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/request-ia-audit")]

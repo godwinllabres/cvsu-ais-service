@@ -56,6 +56,39 @@ public class DisbursementVoucherFlowTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Detail_view_carries_the_full_processing_payload()
+    {
+        await using var db = fixture.CreateContext();
+        var service = Service(db);
+
+        var created = await service.CreateAsync(new CreateDvCommand(
+            Encoder: "clerk@cvsu", FiscalYear: 2026, Amount: 12_345.67m, FundingSourceCode: "01101101",
+            PapCode: "PAP-A", LocationCode: "LOC-A", ExpenseClass: ExpenseClass.Mooe, ObjectAccountCode: "50203010",
+            BudgetCertified: true, InternalAuditConfirmed: false, EndUserConfirmed: true, AccountantSigned: false));
+
+        // Re-read from a fresh context so we exercise the persisted → detail path.
+        await using var freshDb = fixture.CreateContext();
+        var detail = await Service(freshDb).GetAsync(created.Name);
+
+        Assert.Equal(created.Name, detail.Name);
+        Assert.Equal(2026, detail.FiscalYear);
+        Assert.Equal("clerk@cvsu", detail.Encoder);
+        Assert.Equal(12_345.67m, detail.Amount);
+        Assert.Equal("01101101", detail.FundingSourceCode);
+        Assert.Equal("01", detail.FundClusterCode);
+        Assert.Equal("Regular Agency Fund", detail.FundClusterName);
+        Assert.Equal("PAP-A", detail.PapCode);
+        Assert.Equal("LOC-A", detail.LocationCode);
+        Assert.Equal("Mooe", detail.ExpenseClass);
+        Assert.Equal("50203010", detail.ObjectAccountCode);
+        Assert.True(detail.BudgetCertified);
+        Assert.False(detail.InternalAuditConfirmed);
+        Assert.True(detail.EndUserConfirmed);
+        Assert.False(detail.AccountantSigned);
+        Assert.Equal("Draft", detail.Status);
+    }
+
+    [Fact]
     public async Task Encoder_cannot_approve_their_own_dv_through_the_service()
     {
         await using var db = fixture.CreateContext();
