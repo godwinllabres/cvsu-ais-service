@@ -156,8 +156,11 @@ public sealed class AisDbContext(DbContextOptions<AisDbContext> options) : DbCon
             e.Property(x => x.Payor).HasMaxLength(200);
             e.Property(x => x.AmountPaid).HasPrecision(18, 2);
             e.Property(x => x.Mode).HasMaxLength(16);
+            e.Property(x => x.FeeType).HasMaxLength(16);
             e.Property(x => x.FundCluster).HasMaxLength(8);
             e.Property(x => x.PaidToAccount).HasMaxLength(20);
+            e.Property(x => x.CreditAccount).HasMaxLength(20);
+            e.Property(x => x.CostCenter).HasMaxLength(40);
             e.Property(x => x.Status).HasMaxLength(16);
 
             // The OR number is the gapless legal identity — unique.

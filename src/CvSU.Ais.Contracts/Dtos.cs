@@ -126,19 +126,28 @@ public sealed class RecordReceiptRequest
     public string Payor { get; set; } = "";
     public decimal AmountPaid { get; set; }
     public string Mode { get; set; } = "Cash";
+    /// <summary>What is being collected — drives the credit account server-side
+    /// (Tuition/Other → income; Fiduciary/StudentOrg → trust liability). One of:
+    /// Tuition, Fiduciary, StudentOrg, Other.</summary>
+    public string FeeType { get; set; } = "Tuition";
     public string FundCluster { get; set; } = "01";
     public string? PaidToAccount { get; set; }
+    public string? CostCenter { get; set; }
     public DateTimeOffset ReceivedAtUtc { get; set; }
 }
 
-/// <summary>An issued Official Receipt as returned to the client.</summary>
+/// <summary>An issued Official Receipt as returned to the client. <see cref="CreditAccount"/> is
+/// the income/trust-liability account the server resolved and posted (display-only on the client;
+/// the client must never compute it — see CLAUDE.md §5.1).</summary>
 public sealed record ReceiptView(
     string OrNumber,
     string Payor,
     decimal AmountPaid,
     string Mode,
+    string FeeType,
     string FundCluster,
     string PaidToAccount,
+    string CreditAccount,
     DateTimeOffset ReceivedAtUtc,
     DateTimeOffset? IssuedAtUtc,
     string Status);

@@ -12,6 +12,17 @@ public enum PaymentMode
     Online,
 }
 
+/// <summary>What is being collected. Mirrors the Frappe AIS Order of Payment fee_type options.
+/// Drives the credit account: Tuition/Other → income; Fiduciary/StudentOrg → trust liability
+/// (and a Fund-07 cluster forces the trust-liability credit regardless of fee type).</summary>
+public enum FeeType
+{
+    Tuition,
+    Fiduciary,
+    StudentOrg,
+    Other,
+}
+
 /// <summary>Where a receipt is in its short lifecycle. Collections are point-of-receipt events,
 /// so the meaningful states are: captured offline but not yet given an official number (Pending),
 /// and issued with a gapless OR number + posted to the GL (Issued).</summary>
@@ -46,10 +57,21 @@ public sealed class OfficialReceipt
     public string Payor { get; }
     public Money AmountPaid { get; }
     public PaymentMode Mode { get; }
+    public FeeType FeeType { get; }
     public string FundCluster { get; }
 
     /// <summary>RCA cash/bank account debited on issue. Defaults to Cash – Collecting Officers.</summary>
     public string PaidToAccount { get; }
+
+    /// <summary>The income or trust-liability RCA account credited on issue, resolved from
+    /// (fee type, fund cluster) by the application service — the domain doesn't do catalog lookups
+    /// (same seam as the DV resolving its UACS at the service boundary). This is NOT a UACS object
+    /// code and carries no expense_class: revenue/trust is a different classification from spend.</summary>
+    public string CreditAccount { get; }
+
+    /// <summary>Responsibility/cost center, if captured. Recorded on the receipt; carried to the GL
+    /// once GeneralLedgerEntry gains a cost-center dimension (POC: stored on the receipt only).</summary>
+    public string? CostCenter { get; }
 
     /// <summary>When cash actually changed hands (stamped at the window, even offline).</summary>
     public DateTimeOffset ReceivedAt { get; }
@@ -63,9 +85,12 @@ public sealed class OfficialReceipt
         string payor,
         Money amountPaid,
         PaymentMode mode,
+        FeeType feeType,
         string fundCluster,
+        string creditAccount,
         DateTimeOffset receivedAt,
-        string? paidToAccount = null)
+        string? paidToAccount = null,
+        string? costCenter = null)
     {
         if (string.IsNullOrWhiteSpace(payor))
             throw new ArgumentException("Payor is required on an Official Receipt.", nameof(payor));
@@ -73,11 +98,18 @@ public sealed class OfficialReceipt
             throw new ArgumentOutOfRangeException(nameof(amountPaid), "Amount paid must be greater than zero.");
         if (string.IsNullOrWhiteSpace(fundCluster))
             throw new ArgumentException("Fund cluster is required.", nameof(fundCluster));
+        if (string.IsNullOrWhiteSpace(creditAccount))
+            throw new ArgumentException(
+                "A credit account (income or trust liability) is required — a collection must post to a real account, not a placeholder.",
+                nameof(creditAccount));
 
         Payor = payor;
         AmountPaid = amountPaid;
         Mode = mode;
+        FeeType = feeType;
         FundCluster = fundCluster;
+        CreditAccount = creditAccount;
+        CostCenter = costCenter;
         ReceivedAt = receivedAt;
         PaidToAccount = string.IsNullOrWhiteSpace(paidToAccount)
             ? GlAccounts.CashCollectingOfficers
@@ -100,7 +132,10 @@ public sealed class OfficialReceipt
     }
 
     /// <summary>The balanced GL journal posted when the receipt is issued:
-    /// DR the cash account / CR collections-clearing, for the amount received.</summary>
+    /// DR the cash account / CR the resolved income (own-source revenue) or trust-liability
+    /// (Fund 07 / fiduciary) account, for the amount received. This is the accrual GL only — a
+    /// collection is NOT an obligation/disbursement and never touches the budget registry
+    /// (two-books rule, CLAUDE.md §4A.1).</summary>
     public GlPostingBatch BuildCollectionPosting(DateOnly postingDate)
     {
         if (Status != ReceiptStatus.Issued || OrNumber is null)
@@ -110,7 +145,7 @@ public sealed class OfficialReceipt
         var batch = new GlPostingBatch()
             .Add(new GeneralLedgerEntry(postingDate, fiscalYear, PaidToAccount,
                 AmountPaid, Money.Zero, DocType, OrNumber, "Collection received"))
-            .Add(new GeneralLedgerEntry(postingDate, fiscalYear, GlAccounts.CollectionsClearing,
+            .Add(new GeneralLedgerEntry(postingDate, fiscalYear, CreditAccount,
                 Money.Zero, AmountPaid, DocType, OrNumber, "Collection received"));
 
         batch.EnsureBalanced();

@@ -28,8 +28,11 @@ public sealed class ReceiptStore(AisDbContext db) : IReceiptStore
             Payor = receipt.Payor,
             AmountPaid = receipt.AmountPaid.Amount,
             Mode = receipt.Mode.ToString(),
+            FeeType = receipt.FeeType.ToString(),
             FundCluster = receipt.FundCluster,
             PaidToAccount = receipt.PaidToAccount,
+            CreditAccount = receipt.CreditAccount,
+            CostCenter = receipt.CostCenter,
             ReceivedAt = receipt.ReceivedAt,
             IssuedAt = receipt.IssuedAt,
             Status = receipt.Status.ToString(),
@@ -49,7 +52,8 @@ public sealed class ReceiptStore(AisDbContext db) : IReceiptStore
     {
         var receipt = new OfficialReceipt(
             r.Payor, new Money(r.AmountPaid),
-            Enum.Parse<PaymentMode>(r.Mode), r.FundCluster, r.ReceivedAt, r.PaidToAccount);
+            Enum.Parse<PaymentMode>(r.Mode), Enum.Parse<FeeType>(r.FeeType),
+            r.FundCluster, r.CreditAccount, r.ReceivedAt, r.PaidToAccount, r.CostCenter);
         receipt.Issue(r.OrNumber, r.IssuedAt ?? r.ReceivedAt);
         return receipt;
     }

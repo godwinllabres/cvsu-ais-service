@@ -11,8 +11,12 @@ public sealed class OfficialReceiptRow
     public string Payor { get; set; } = default!;
     public decimal AmountPaid { get; set; }
     public string Mode { get; set; } = default!;
+    public string FeeType { get; set; } = default!;
     public string FundCluster { get; set; } = default!;
     public string PaidToAccount { get; set; } = default!;
+    /// <summary>The resolved income/trust-liability account credited on the GL.</summary>
+    public string CreditAccount { get; set; } = default!;
+    public string? CostCenter { get; set; }
     public DateTimeOffset ReceivedAt { get; set; }
     public DateTimeOffset? IssuedAt { get; set; }
     public string Status { get; set; } = default!;

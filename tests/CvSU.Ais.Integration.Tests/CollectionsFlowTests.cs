@@ -1,6 +1,7 @@
 using CvSU.Ais.Application.Collections;
 using CvSU.Ais.Contracts;
 using CvSU.Ais.Domain.Collections;
+using CvSU.Ais.Domain.Common;
 using CvSU.Ais.Domain.Ledgers;
 using CvSU.Ais.Infrastructure;
 using CvSU.Ais.Infrastructure.Numbering;
@@ -23,13 +24,16 @@ public class CollectionsFlowTests(PostgresFixture fixture)
             new GaplessVoucherNumberService(db),
             new UnitOfWork(db));
 
-    private static RecordReceiptRequest Receipt(string key, decimal amount, DateTimeOffset? at = null) => new()
+    private static RecordReceiptRequest Receipt(
+        string key, decimal amount, string feeType = "Tuition", string fundCluster = "01",
+        DateTimeOffset? at = null) => new()
     {
         IdempotencyKey = key,
         Payor = "Juan dela Cruz",
         AmountPaid = amount,
         Mode = "Cash",
-        FundCluster = "01",
+        FeeType = feeType,
+        FundCluster = fundCluster,
         ReceivedAtUtc = at ?? new DateTimeOffset(2026, 6, 25, 9, 0, 0, TimeSpan.Zero),
     };
 
@@ -45,7 +49,7 @@ public class CollectionsFlowTests(PostgresFixture fixture)
         Assert.Equal("Issued", view.Status);
         Assert.Equal(1_500m, view.AmountPaid);
 
-        // The collection posted DR cash / CR collections-clearing for the amount received.
+        // A tuition collection posts DR cash / CR Tuition Fees income for the amount received.
         var lines = await db.GeneralLedger
             .Where(g => g.VoucherDoctype == OfficialReceipt.DocType && g.VoucherNo == view.OrNumber)
             .ToListAsync();
@@ -53,7 +57,54 @@ public class CollectionsFlowTests(PostgresFixture fixture)
         Assert.Equal(1_500m, lines.Where(l => l.Debit > 0).Sum(l => l.Debit));
         Assert.Equal(1_500m, lines.Where(l => l.Credit > 0).Sum(l => l.Credit));
         Assert.Contains(lines, l => l.Account == GlAccounts.CashCollectingOfficers && l.Debit == 1_500m);
-        Assert.Contains(lines, l => l.Account == GlAccounts.CollectionsClearing && l.Credit == 1_500m);
+        Assert.Contains(lines, l => l.Account == GlAccounts.TuitionFeesIncome && l.Credit == 1_500m);
+    }
+
+    [Fact]
+    public async Task Tuition_collection_credits_income_not_a_clearing_account()
+    {
+        await using var db = fixture.CreateContext();
+        var service = Service(db);
+
+        var view = await service.RecordReceiptAsync(Receipt("tuition-1", 2_000m, feeType: "Tuition", fundCluster: "01"));
+
+        Assert.Equal(GlAccounts.TuitionFeesIncome, view.CreditAccount);
+        var credit = await db.GeneralLedger.SingleAsync(g => g.VoucherNo == view.OrNumber && g.Credit > 0);
+        Assert.Equal(GlAccounts.TuitionFeesIncome, credit.Account);
+    }
+
+    [Fact]
+    public async Task Fund_07_trust_collection_credits_a_trust_liability_never_income()
+    {
+        await using var db = fixture.CreateContext();
+        var service = Service(db);
+
+        // Fund 07 (Trust Receipts): money held for others — must credit a LIABILITY, not income.
+        var view = await service.RecordReceiptAsync(Receipt("trust-1", 5_000m, feeType: "Fiduciary", fundCluster: "07"));
+
+        Assert.Equal(GlAccounts.TrustLiabilities, view.CreditAccount);
+        var credit = await db.GeneralLedger.SingleAsync(g => g.VoucherNo == view.OrNumber && g.Credit > 0);
+        Assert.Equal(GlAccounts.TrustLiabilities, credit.Account);
+        Assert.NotEqual(GlAccounts.TuitionFeesIncome, credit.Account);
+    }
+
+    [Fact]
+    public void Fund_07_cluster_overrides_fee_type_to_a_trust_liability()
+    {
+        // Even a "Tuition" fee_type, if collected into the trust fund, is a trust liability.
+        Assert.Equal(GlAccounts.TrustLiabilities,
+            CollectionsService.ResolveCreditAccount(FeeType.Tuition, "07"));
+        // And an own-source tuition collection stays income.
+        Assert.Equal(GlAccounts.TuitionFeesIncome,
+            CollectionsService.ResolveCreditAccount(FeeType.Tuition, "01"));
+    }
+
+    [Fact]
+    public void A_receipt_without_a_credit_account_cannot_be_constructed()
+    {
+        Assert.Throws<ArgumentException>(() => new OfficialReceipt(
+            "Payor", new Money(100m), PaymentMode.Cash, FeeType.Tuition, "01",
+            creditAccount: "  ", DateTimeOffset.UtcNow));
     }
 
     [Fact]
