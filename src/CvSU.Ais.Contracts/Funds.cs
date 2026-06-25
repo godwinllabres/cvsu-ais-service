@@ -1,3 +1,7 @@
+// Declared under the original CvSU.Ais.Domain.Funds namespace (not CvSU.Ais.Contracts)
+// so that re-homing these enums into the shared assembly requires NO using-statement
+// changes anywhere in the domain/API. The Blazor web references the same assembly and
+// thus the same types — one definition, no drift.
 namespace CvSU.Ais.Domain.Funds;
 
 /// <summary>Which budget registry a fund cluster reports through.</summary>

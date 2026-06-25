@@ -22,4 +22,9 @@
     <ProjectReference Include="..\..\src\CvSU.Ais.Domain\CvSU.Ais.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Frozen legacy DV workflow contract, read by the drift-detection test. -->
+    <None Include="Fixtures\dv_workflow.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

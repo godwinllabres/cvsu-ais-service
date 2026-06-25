@@ -1,4 +1,5 @@
 using CvSU.Ais.Application.Budget;
+using CvSU.Ais.Application.Collections;
 using CvSU.Ais.Application.DisbursementVouchers;
 using CvSU.Ais.Application.Reports;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<DisbursementVoucherService>();
         services.AddScoped<BudgetExecutionService>();
         services.AddScoped<ReportingService>();
+        services.AddScoped<CollectionsService>();
         return services;
     }
 }

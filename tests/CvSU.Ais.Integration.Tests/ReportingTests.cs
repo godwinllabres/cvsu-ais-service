@@ -1,6 +1,7 @@
 using CvSU.Ais.Application.Budget;
 using CvSU.Ais.Application.DisbursementVouchers;
 using CvSU.Ais.Application.Reports;
+using CvSU.Ais.Domain.Budget;
 using CvSU.Ais.Domain.Disbursement;
 using CvSU.Ais.Domain.Funds;
 using CvSU.Ais.Infrastructure;
@@ -38,6 +39,24 @@ public class ReportingTests(PostgresFixture fixture)
     }
 
     private static ReportingService Reports(AisDbContext db) => new(new ReportingQueries(db));
+
+    /// <summary>IA-first route to Accounting: clerk routes to Internal Audit, the
+    /// auditor submits to Accounting (no direct Draft → Submitted edge).</summary>
+    private static async Task RouteToAccounting(DisbursementVoucherService dvs, string name)
+    {
+        await dvs.FireAsync(name, DvAction.RequestIaAudit, new TransitionContext("clerk@cvsu", DvRoles.Encoder));
+        await dvs.FireAsync(name, DvAction.Submit, new TransitionContext("auditor@cvsu", DvRoles.InternalAuditor));
+    }
+
+    /// <summary>Record every required certification (each by its responsible officer).</summary>
+    private static async Task CertifyAll(DisbursementVoucherService dvs, string name)
+    {
+        await dvs.CertifyAsync(name, Certification.BudgetSufficiency, new TransitionContext("budget@cvsu", BudgetRoles.BudgetOfficer));
+        await dvs.CertifyAsync(name, Certification.InternalAudit, new TransitionContext("ia@cvsu", DvRoles.InternalAuditor));
+        await dvs.CertifyAsync(name, Certification.EndUserAcceptance, new TransitionContext("enduser@cvsu", DvRoles.EndUser));
+        await dvs.CertifyAsync(name, Certification.AccountantSignature, new TransitionContext("boxd@cvsu", DvRoles.Accountant));
+        await dvs.CertifyAsync(name, Certification.SupplyPropertyInspection, new TransitionContext("supply@cvsu", DvRoles.SupplyPropertyOfficer));
+    }
 
     [Fact]
     public async Task Rapal_reflects_appropriation_and_allotment_for_the_year()
@@ -101,9 +120,9 @@ public class ReportingTests(PostgresFixture fixture)
 
         var dv = await dvs.CreateAsync(new CreateDvCommand(
             Encoder: "clerk@cvsu", FiscalYear: postingYear, Amount: 50_000m, FundingSourceCode: "01101101",
-            PapCode: "PAP-A", LocationCode: "LOC-A", ExpenseClass: ExpenseClass.Mooe, ObjectAccountCode: "50203010",
-            BudgetCertified: true, InternalAuditConfirmed: true, EndUserConfirmed: true, AccountantSigned: true));
-        await dvs.FireAsync(dv.Name, DvAction.Submit, new TransitionContext("clerk@cvsu", DvRoles.Encoder));
+            PapCode: "PAP-A", LocationCode: "LOC-A", ExpenseClass: ExpenseClass.Mooe, ObjectAccountCode: "50203010"));
+        await CertifyAll(dvs, dv.Name);
+        await RouteToAccounting(dvs, dv.Name);
         await dvs.FireAsync(dv.Name, DvAction.Approve, new TransitionContext("acct@cvsu", DvRoles.Accountant));
         await dvs.FireAsync(dv.Name, DvAction.ApproveForPayment, new TransitionContext("head@cvsu", DvRoles.HeadOfAgency));
         await dvs.FireAsync(dv.Name, DvAction.Post, new TransitionContext("acct@cvsu", DvRoles.Accountant));
@@ -128,9 +147,9 @@ public class ReportingTests(PostgresFixture fixture)
 
         var dv = await dvs.CreateAsync(new CreateDvCommand(
             Encoder: "clerk@cvsu", FiscalYear: postingYear, Amount: amount, FundingSourceCode: "01101101",
-            PapCode: "PAP-A", LocationCode: "LOC-A", ExpenseClass: ExpenseClass.Mooe, ObjectAccountCode: "50203010",
-            BudgetCertified: true, InternalAuditConfirmed: true, EndUserConfirmed: true, AccountantSigned: true));
-        await dvs.FireAsync(dv.Name, DvAction.Submit, new TransitionContext("clerk@cvsu", DvRoles.Encoder));
+            PapCode: "PAP-A", LocationCode: "LOC-A", ExpenseClass: ExpenseClass.Mooe, ObjectAccountCode: "50203010"));
+        await CertifyAll(dvs, dv.Name);
+        await RouteToAccounting(dvs, dv.Name);
         await dvs.FireAsync(dv.Name, DvAction.Approve, new TransitionContext("acct@cvsu", DvRoles.Accountant));
         await dvs.FireAsync(dv.Name, DvAction.ApproveForPayment, new TransitionContext("head@cvsu", DvRoles.HeadOfAgency));
         await dvs.FireAsync(dv.Name, DvAction.Post, new TransitionContext("acct@cvsu", DvRoles.Accountant));

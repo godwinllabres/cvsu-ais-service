@@ -52,6 +52,16 @@ public sealed class SegregationOfDutiesException(string message)
 public sealed class InvalidTransitionException(string message)
     : DomainException("workflow.invalid_transition", message);
 
+/// <summary>A payment identifier (cheque/ADA/transfer reference, or control number)
+/// already used by another DV — the duplicate-disbursement guard.</summary>
+public sealed class DuplicatePaymentIdentifierException(string message)
+    : DomainException("dv.duplicate_payment_identifier", message);
+
+/// <summary>The DB control-number uniqueness backstop tripped (a concurrent approval
+/// race the gapless generator's advisory lock should normally prevent).</summary>
+public sealed class DuplicateControlNumberException(string message)
+    : DomainException("dv.duplicate_control_number", message);
+
 /// <summary>The caller lacks the role this transition requires. This is the gap
 /// that the legacy <c>set_workflow_status</c> left open by saving with
 /// <c>ignore_permissions</c>; here every transition is role-gated.</summary>

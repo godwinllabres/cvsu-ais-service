@@ -1,4 +1,4 @@
-using CvSU.Ais.Domain.Funds;
+using CvSU.Ais.Contracts;
 
 namespace CvSU.Ais.Application.Abstractions;
 
@@ -21,33 +21,5 @@ public interface IReportingQueries
     Task<IReadOnlyList<TrialBalanceRow>> TrialBalanceAsync(int fiscalYear, CancellationToken cancellationToken = default);
 }
 
-/// <summary>One RAOD/RBUD line: the obligation/disbursement position of a fund-cluster + expense-class slice.</summary>
-public sealed record BudgetRegistryRow(
-    string FundClusterCode,
-    string FundClusterName,
-    RegistryType Registry,
-    ExpenseClass ExpenseClass,
-    decimal Allotment,
-    decimal Obligation,
-    decimal Disbursement)
-{
-    /// <summary>Allotment not yet obligated.</summary>
-    public decimal UnobligatedBalance => Allotment - Obligation;
-
-    /// <summary>Obligated but not yet disbursed (unpaid obligations).</summary>
-    public decimal UnpaidObligation => Obligation - Disbursement;
-}
-
-/// <summary>One RAPAL line: appropriation vs allotment for a fund-cluster + expense-class slice.</summary>
-public sealed record AppropriationAllotmentRow(
-    string FundClusterCode,
-    string FundClusterName,
-    ExpenseClass ExpenseClass,
-    decimal Appropriation,
-    decimal Allotment)
-{
-    public decimal UnallottedBalance => Appropriation - Allotment;
-}
-
-/// <summary>One trial-balance line: total debits and credits posted to a GL account.</summary>
-public sealed record TrialBalanceRow(string Account, decimal Debit, decimal Credit);
+// BudgetRegistryRow, AppropriationAllotmentRow and TrialBalanceRow now come from the
+// shared CvSU.Ais.Contracts project (referenced by both the API and the Blazor client).

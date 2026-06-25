@@ -1,4 +1,5 @@
 using CvSU.Ais.Application.Abstractions;
+using CvSU.Ais.Contracts;
 using CvSU.Ais.Domain.Budget;
 using CvSU.Ais.Domain.Common;
 using CvSU.Ais.Domain.Funds;
@@ -14,14 +15,8 @@ public sealed record CreateAppropriationCommand(
     string ObjectAccountCode,
     decimal FinalAppropriation);
 
-public sealed record AppropriationView(
-    string Id, decimal FinalAppropriation, decimal Allotted, decimal Unallotted);
-
-public sealed record AllotmentView(
-    string Id, string AppropriationId, decimal Amount, decimal Obligated, decimal Unobligated);
-
-public sealed record ObligationView(
-    string Id, string AllotmentId, decimal Amount, decimal AllotmentUnobligatedBalance);
+// AppropriationView / AllotmentView / ObligationView now come from the shared
+// CvSU.Ais.Contracts project (referenced by both the API and the Blazor client).
 
 /// <summary>
 /// Drives the budget execution cycle. Each step posts to the budget ledger only

@@ -11,7 +11,7 @@ them with the domain modeled the way government fund accounting actually works.
 
 > **Status:** Runs end-to-end. Domain core + invariant suite, EF Core + Postgres
 > persistence, and an HTTP API with role-gated DV transitions are all in place.
-> **52 tests green** — 45 pure-domain invariants + 7 integration tests that run
+> **56 tests** — 49 pure-domain invariants + 7 integration tests that run
 > against a real PostgreSQL container (Testcontainers). See the roadmap.
 
 ---
@@ -51,7 +51,8 @@ Clean Architecture, dependencies pointing inward:
 
 ```
 src/
-  CvSU.Ais.Domain          ← entities, value objects, aggregates, invariants (no deps)
+  CvSU.Ais.Contracts        ← shared enums (DvWorkflowStatus/ExpenseClass/RegistryType); also referenced by the Blazor client
+  CvSU.Ais.Domain          ← entities, value objects, aggregates, invariants (deps: Contracts)
   CvSU.Ais.Application      ← use cases / commands, ports (depends on Domain)
   CvSU.Ais.Infrastructure   ← EF Core, Postgres, interceptors (depends on Application)
   CvSU.Ais.Api              ← ASP.NET Core Web API, auth policies (depends on Infrastructure)
@@ -72,7 +73,7 @@ enforced in Python, now stack-agnostic and fast:
 - UACS completeness — a half-specified budget line is unrepresentable.
 - GL lines are debit-XOR-credit; journals balance to ±₱0.01; budget entries post to their canonical side.
 - Budget ceilings (R-BUD-01/02), STF-PS prohibition (R-BUD-05), no cross-cluster contamination.
-- DV state machine: illegal edges rejected, **every transition role-gated**, SoD enforced against direct invocation, certification gates, Administrator escape hatch, and a **drift test** asserting the transition set matches the intended workflow.
+- DV state machine: illegal edges rejected, **every transition role-gated**, SoD enforced against direct invocation, certification gates, Administrator escape hatch, and a **drift test** that reads the frozen legacy Frappe `workflow.json` (vendored as `dv_workflow.json`) and asserts the single engine reproduces its transitions exactly.
 
 ## Running it
 
@@ -101,9 +102,12 @@ curl -X POST http://localhost:8080/api/disbursement-vouchers \
   -d '{"fiscalYear":2026,"amount":5000,"fundingSourceCode":"01101101",
        "budgetCertified":true,"internalAuditConfirmed":true,"endUserConfirmed":true,"accountantSigned":true}'
 
-# Submit (clerk) → Approve (a different accountant — SoD enforced server-side)
-curl -X POST http://localhost:8080/api/disbursement-vouchers/DV-2026-00001/submit  -H "X-User: clerk@cvsu"      -H "X-Roles: Accounting Clerk"
-curl -X POST http://localhost:8080/api/disbursement-vouchers/DV-2026-00001/approve -H "X-User: accountant@cvsu" -H "X-Roles: Accountant"
+# IA-first route: clerk routes to Internal Audit → auditor submits to Accounting →
+# a different accountant approves (SoD enforced server-side). There is no direct
+# Draft → Submitted edge, mirroring the legacy workflow.
+curl -X POST http://localhost:8080/api/disbursement-vouchers/DV-2026-00001/request-ia-audit -H "X-User: clerk@cvsu"      -H "X-Roles: Accounting Clerk"
+curl -X POST http://localhost:8080/api/disbursement-vouchers/DV-2026-00001/submit           -H "X-User: auditor@cvsu"    -H "X-Roles: Internal Auditor"
+curl -X POST http://localhost:8080/api/disbursement-vouchers/DV-2026-00001/approve          -H "X-User: accountant@cvsu" -H "X-Roles: Accountant"
 ```
 
 A caller without the required role is rejected at the HTTP boundary (403); the

@@ -1,4 +1,5 @@
 using CvSU.Ais.Application.Abstractions;
+using CvSU.Ais.Contracts;
 using CvSU.Ais.Domain.Funds;
 
 namespace CvSU.Ais.Application.Reports;
@@ -48,28 +49,6 @@ public sealed class ReportingService(IReportingQueries queries)
         new(rows.Sum(r => r.Allotment), rows.Sum(r => r.Obligation), rows.Sum(r => r.Disbursement));
 }
 
-public sealed record BudgetRegistryReport(
-    int FiscalYear, BudgetRegistrySection Raod, BudgetRegistrySection Rbud);
-
-public sealed record BudgetRegistrySection(
-    string Registry, IReadOnlyList<BudgetRegistryRow> Lines, BudgetRegistryTotals Totals);
-
-public sealed record BudgetRegistryTotals(decimal Allotment, decimal Obligation, decimal Disbursement)
-{
-    public decimal UnobligatedBalance => Allotment - Obligation;
-    public decimal UnpaidObligation => Obligation - Disbursement;
-}
-
-public sealed record AppropriationAllotmentReport(
-    int FiscalYear, IReadOnlyList<AppropriationAllotmentRow> Lines,
-    decimal TotalAppropriation, decimal TotalAllotment)
-{
-    public decimal TotalUnallotted => TotalAppropriation - TotalAllotment;
-}
-
-public sealed record TrialBalanceReport(
-    int FiscalYear, IReadOnlyList<TrialBalanceRow> Lines, decimal TotalDebit, decimal TotalCredit)
-{
-    /// <summary>A trial balance must balance to the centavo (R-GL-01 across the whole book).</summary>
-    public bool IsBalanced => Math.Abs(TotalDebit - TotalCredit) < 0.01m;
-}
+// BudgetRegistryReport/Section/Totals, AppropriationAllotmentReport and TrialBalanceReport
+// now come from the shared CvSU.Ais.Contracts project (derived fields are computed
+// properties there, so the client renders the same numbers the server computes).

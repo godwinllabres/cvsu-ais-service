@@ -146,6 +146,15 @@ namespace CvSU.Ais.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("accountant_signed");
 
+                    b.Property<DateTime?>("AccountantSignedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("accountant_signed_at");
+
+                    b.Property<string>("AccountantSignedBy")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)")
+                        .HasColumnName("accountant_signed_by");
+
                     b.Property<decimal>("Amount")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)")
@@ -165,6 +174,26 @@ namespace CvSU.Ais.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("budget_certified");
 
+                    b.Property<DateTime?>("BudgetCertifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("budget_certified_at");
+
+                    b.Property<string>("BudgetCertifiedBy")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)")
+                        .HasColumnName("budget_certified_by");
+
+                    b.Property<string>("ControlNumber")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("control_number");
+
+                    b.Property<string>("DvType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("dv_type");
+
                     b.Property<string>("Encoder")
                         .IsRequired()
                         .HasMaxLength(140)
@@ -174,6 +203,15 @@ namespace CvSU.Ais.Infrastructure.Migrations
                     b.Property<bool>("EndUserConfirmed")
                         .HasColumnType("boolean")
                         .HasColumnName("end_user_confirmed");
+
+                    b.Property<DateTime?>("EndUserConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_user_confirmed_at");
+
+                    b.Property<string>("EndUserConfirmedBy")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)")
+                        .HasColumnName("end_user_confirmed_by");
 
                     b.Property<string>("ExpenseClass")
                         .HasMaxLength(8)
@@ -189,6 +227,15 @@ namespace CvSU.Ais.Infrastructure.Migrations
                     b.Property<bool>("InternalAuditConfirmed")
                         .HasColumnType("boolean")
                         .HasColumnName("internal_audit_confirmed");
+
+                    b.Property<DateTime?>("InternalAuditConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("internal_audit_confirmed_at");
+
+                    b.Property<string>("InternalAuditConfirmedBy")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)")
+                        .HasColumnName("internal_audit_confirmed_by");
 
                     b.Property<string>("Lifecycle")
                         .IsRequired()
@@ -211,20 +258,58 @@ namespace CvSU.Ais.Infrastructure.Migrations
                         .HasColumnType("character varying(40)")
                         .HasColumnName("pap_code");
 
+                    b.Property<string>("PaymentMethod")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("payment_method");
+
+                    b.Property<string>("PaymentReference")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payment_reference");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)")
                         .HasColumnName("status");
 
+                    b.Property<bool>("SupplyPropertySignedOff")
+                        .HasColumnType("boolean")
+                        .HasColumnName("supply_property_signed_off");
+
+                    b.Property<DateTime?>("SupplyPropertySignedOffAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("supply_property_signed_off_at");
+
+                    b.Property<string>("SupplyPropertySignedOffBy")
+                        .HasMaxLength(140)
+                        .HasColumnType("character varying(140)")
+                        .HasColumnName("supply_property_signed_off_by");
+
+                    b.Property<decimal>("TaxWithheld")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("tax_withheld");
+
                     b.HasKey("Name")
                         .HasName("pk_disbursement_voucher");
+
+                    b.HasIndex("ControlNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_disbursement_voucher_control_number")
+                        .HasFilter("control_number IS NOT NULL");
 
                     b.HasIndex("FundingSourceCode")
                         .HasDatabaseName("ix_disbursement_voucher_funding_source_code");
 
                     b.HasIndex("Status")
                         .HasDatabaseName("ix_disbursement_voucher_status");
+
+                    b.HasIndex("PaymentMethod", "PaymentReference")
+                        .IsUnique()
+                        .HasDatabaseName("ix_disbursement_voucher_payment_method_payment_reference")
+                        .HasFilter("payment_reference IS NOT NULL");
 
                     b.ToTable("disbursement_voucher", (string)null);
                 });
@@ -334,6 +419,84 @@ namespace CvSU.Ais.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_gl_single_sided", "NOT (debit > 0 AND credit > 0)");
                         });
+                });
+
+            modelBuilder.Entity("CvSU.Ais.Infrastructure.Persistence.OfficialReceiptRow", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("AmountPaid")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount_paid");
+
+                    b.Property<string>("FundCluster")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("fund_cluster");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<DateTimeOffset?>("IssuedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("issued_at");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("mode");
+
+                    b.Property<string>("OrNumber")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("or_number");
+
+                    b.Property<string>("PaidToAccount")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("paid_to_account");
+
+                    b.Property<string>("Payor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("payor");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_official_receipt");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_official_receipt_idempotency_key");
+
+                    b.HasIndex("OrNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_official_receipt_or_number");
+
+                    b.ToTable("official_receipt", (string)null);
                 });
 
             modelBuilder.Entity("CvSU.Ais.Infrastructure.Persistence.VoucherCounter", b =>

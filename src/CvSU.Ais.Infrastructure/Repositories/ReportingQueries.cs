@@ -1,4 +1,5 @@
 using CvSU.Ais.Application.Abstractions;
+using CvSU.Ais.Contracts;
 using CvSU.Ais.Domain.Funds;
 using CvSU.Ais.Domain.Ledgers;
 using Microsoft.EntityFrameworkCore;
