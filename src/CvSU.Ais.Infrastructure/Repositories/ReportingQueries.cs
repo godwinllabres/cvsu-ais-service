@@ -81,6 +81,78 @@ public sealed class ReportingQueries(AisDbContext db) : IReportingQueries
             .ToList();
     }
 
+    public async Task<IReadOnlyList<AccountBalanceRow>> AccountBalancesAsync(
+        int fiscalYear, CancellationToken cancellationToken = default)
+    {
+        var rows = await db.GeneralLedger
+            .Where(e => e.FiscalYear == fiscalYear)
+            .Select(e => new { e.Account, e.Debit, e.Credit })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .GroupBy(e => e.Account)
+            .Select(g => new AccountBalanceRow(
+                g.Key, ClassifyRca(g.Key), g.Sum(x => x.Debit), g.Sum(x => x.Credit)))
+            .OrderBy(r => r.Account)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<RevenueByQuarterRow>> RevenueByQuarterAsync(
+        int fiscalYear, CancellationToken cancellationToken = default)
+    {
+        // Revenue is recognised on the credit side of group-4 accounts; bucket by posting-date quarter.
+        var rows = await db.GeneralLedger
+            .Where(e => e.FiscalYear == fiscalYear)
+            .Select(e => new { e.Account, e.Credit, e.PostingDate })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Where(e => ClassifyRca(e.Account) == RcaGroup.Revenue)
+            .GroupBy(e => e.Account)
+            .Select(g => new RevenueByQuarterRow(
+                g.Key,
+                g.Where(x => Quarter(x.PostingDate) == 1).Sum(x => x.Credit),
+                g.Where(x => Quarter(x.PostingDate) == 2).Sum(x => x.Credit),
+                g.Where(x => Quarter(x.PostingDate) == 3).Sum(x => x.Credit),
+                g.Where(x => Quarter(x.PostingDate) == 4).Sum(x => x.Credit)))
+            .OrderBy(r => r.Account)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<DisbursementByClassRow>> DisbursementsByClassAsync(
+        int fiscalYear, CancellationToken cancellationToken = default)
+    {
+        // Disbursements come off the budget ledger's Disbursement entry type, already tagged
+        // with the allotment class — exactly the FAR No. 4 column dimension.
+        var facts = await BudgetFactsAsync(fiscalYear, cancellationToken);
+
+        return facts
+            .GroupBy(f => f.ExpenseClass)
+            .Select(g => new DisbursementByClassRow(
+                g.Key, Net(g, BudgetEntryType.Disbursement, BudgetEntryType.DisbursementReversal)))
+            .Where(r => r.Amount != 0)
+            .OrderBy(r => r.ExpenseClass)
+            .ToList();
+    }
+
+    private static int Quarter(DateOnly d) => (d.Month - 1) / 3 + 1;
+
+    /// <summary>Classify an RCA object account by its leading digit (Revised Chart of Accounts):
+    /// 1 Assets · 2 Liabilities · 3 Equity · 4 Revenue · 5 Expenses.</summary>
+    private static RcaGroup ClassifyRca(string account)
+    {
+        var first = account.TrimStart().FirstOrDefault();
+        return first switch
+        {
+            '1' => RcaGroup.Asset,
+            '2' => RcaGroup.Liability,
+            '3' => RcaGroup.Equity,
+            '4' => RcaGroup.Revenue,
+            '5' => RcaGroup.Expense,
+            _ => RcaGroup.Other,
+        };
+    }
+
     /// <summary>Net amount for a normal/reversal entry-type pair: the normal type
     /// posts on its declared side, the reversal on the opposite, so the net is
     /// (normal side total) − (reversal side total).</summary>
