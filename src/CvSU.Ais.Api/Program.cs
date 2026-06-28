@@ -18,10 +18,26 @@ var connectionString = builder.Configuration.GetConnectionString("Postgres")
 builder.Services.AddInfrastructure(connectionString);
 builder.Services.AddApplication();
 
+// Authentication. Two schemes coexist:
+//   • DevHeader  — reads X-User / X-Roles (local dev, Postman, offline UI work).
+//   • Frappe     — validates a Frappe-issued opaque Bearer token via introspection +
+//                  userinfo (real SSO; "Frappe issues, the service trusts").
+// FrappeAuth:Enabled picks the default: true ⇒ Frappe (production/SSO), false ⇒ DevHeader.
+var frappeAuthEnabled = builder.Configuration.GetValue("FrappeAuth:Enabled", false);
+var defaultScheme = frappeAuthEnabled
+    ? FrappeIntrospectionAuthenticationHandler.SchemeName
+    : DevHeaderAuthenticationHandler.SchemeName;
+
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient(FrappeIntrospectionAuthenticationHandler.HttpClientName);
+
 builder.Services
-    .AddAuthentication(DevHeaderAuthenticationHandler.SchemeName)
+    .AddAuthentication(defaultScheme)
     .AddScheme<AuthenticationSchemeOptions, DevHeaderAuthenticationHandler>(
-        DevHeaderAuthenticationHandler.SchemeName, _ => { });
+        DevHeaderAuthenticationHandler.SchemeName, _ => { })
+    .AddScheme<FrappeAuthOptions, FrappeIntrospectionAuthenticationHandler>(
+        FrappeIntrospectionAuthenticationHandler.SchemeName,
+        opts => builder.Configuration.GetSection("FrappeAuth").Bind(opts));
 
 // One policy per DV transition, each bound to the role the domain also enforces.
 builder.Services.AddAuthorizationBuilder()
@@ -56,6 +72,15 @@ var app = builder.Build();
 app.UseExceptionHandler();
 
 await ApplyMigrationsAsync(app);
+
+// Dev convenience: seed a balanced set of GL entries so the financial statements and
+// registries show real figures. Idempotent — only seeds an empty ledger.
+if (app.Environment.IsDevelopment())
+{
+    using var seedScope = app.Services.CreateScope();
+    await seedScope.ServiceProvider.GetRequiredService<CvSU.Ais.Infrastructure.DevDataSeeder>()
+        .SeedAsync();
+}
 
 app.UseCors(SpaCorsPolicy);
 app.UseAuthentication();

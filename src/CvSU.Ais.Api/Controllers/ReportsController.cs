@@ -32,5 +32,26 @@ public sealed class ReportsController(ReportingService reports) : ControllerBase
         [FromQuery] int? fiscalYear, CancellationToken cancellationToken) =>
         Ok(await reports.TrialBalanceAsync(Year(fiscalYear), cancellationToken));
 
+    /// <summary>The four General-Purpose Financial Statements (GAM/PPSAS): Statement of
+    /// Financial Position, Financial Performance, Changes in Net Assets/Equity and Cash Flows,
+    /// derived from the classified GL account balances.</summary>
+    [HttpGet("financial-statements")]
+    public async Task<ActionResult<FinancialStatementsReport>> FinancialStatements(
+        [FromQuery] int? fiscalYear, CancellationToken cancellationToken) =>
+        Ok(await reports.FinancialStatementsAsync(Year(fiscalYear), cancellationToken));
+
+    /// <summary>RROR / Quarterly Report of Revenue and Other Receipts (FAR No. 5): revenue
+    /// recognised per account, split by quarter.</summary>
+    [HttpGet("revenue")]
+    public async Task<ActionResult<RevenueReport>> Revenue(
+        [FromQuery] int? fiscalYear, CancellationToken cancellationToken) =>
+        Ok(await reports.RevenueReportAsync(Year(fiscalYear), cancellationToken));
+
+    /// <summary>Monthly Report of Disbursements (FAR No. 4): cash disbursements per month.</summary>
+    [HttpGet("monthly-disbursements")]
+    public async Task<ActionResult<MonthlyDisbursementReport>> MonthlyDisbursements(
+        [FromQuery] int? fiscalYear, CancellationToken cancellationToken) =>
+        Ok(await reports.MonthlyDisbursementsAsync(Year(fiscalYear), cancellationToken));
+
     private static int Year(int? fiscalYear) => fiscalYear ?? DateTime.UtcNow.Year;
 }
