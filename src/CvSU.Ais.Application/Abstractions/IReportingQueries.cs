@@ -19,6 +19,49 @@ public interface IReportingQueries
 
     /// <summary>GL debit/credit totals per account for one fiscal year (the trial-balance shape).</summary>
     Task<IReadOnlyList<TrialBalanceRow>> TrialBalanceAsync(int fiscalYear, CancellationToken cancellationToken = default);
+
+    /// <summary>GL account balances classified by RCA major account group, for the financial
+    /// statements (Statement of Financial Position and Financial Performance).</summary>
+    Task<IReadOnlyList<AccountBalanceRow>> AccountBalancesAsync(int fiscalYear, CancellationToken cancellationToken = default);
+
+    /// <summary>Revenue recognised per RCA revenue account, split by quarter of the posting date —
+    /// the shape of the RROR and the Quarterly Report of Revenue and Other Receipts (FAR No. 5).</summary>
+    Task<IReadOnlyList<RevenueByQuarterRow>> RevenueByQuarterAsync(int fiscalYear, CancellationToken cancellationToken = default);
+
+    /// <summary>Disbursements totalled per allotment class (PS/MOOE/FinEx/CO) from the budget
+    /// ledger's disbursement entries — the column structure of the Monthly Report of
+    /// Disbursements (FAR No. 4).</summary>
+    Task<IReadOnlyList<DisbursementByClassRow>> DisbursementsByClassAsync(int fiscalYear, CancellationToken cancellationToken = default);
+}
+
+/// <summary>One RROR/QRROR line: a revenue account and the amount recognised per quarter.</summary>
+public sealed record RevenueByQuarterRow(
+    string Account, decimal Q1, decimal Q2, decimal Q3, decimal Q4)
+{
+    public decimal Total => Q1 + Q2 + Q3 + Q4;
+}
+
+/// <summary>Disbursements totalled per allotment class — the FAR No. 4 column structure.</summary>
+public sealed record DisbursementByClassRow(ExpenseClass ExpenseClass, decimal Amount);
+
+/// <summary>The RCA major account groups, keyed off the first digit of the account code
+/// (Revised Chart of Accounts): 1 Assets · 2 Liabilities · 3 Equity · 4 Revenue · 5 Expenses.</summary>
+public enum RcaGroup
+{
+    Asset,
+    Liability,
+    Equity,
+    Revenue,
+    Expense,
+    Other,
+}
+
+/// <summary>One classified GL account with its net balance. Assets/Expenses carry debit
+/// balances; Liabilities/Equity/Revenue carry credit balances — the financial statements
+/// present each on its natural side.</summary>
+public sealed record AccountBalanceRow(string Account, RcaGroup Group, decimal Debit, decimal Credit)
+{
+    public decimal Net => Debit - Credit;
 }
 
 /// <summary>One RAOD/RBUD line: the obligation/disbursement position of a fund-cluster + expense-class slice.</summary>
