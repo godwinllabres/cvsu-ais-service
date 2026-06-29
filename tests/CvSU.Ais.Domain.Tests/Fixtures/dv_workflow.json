@@ -1,0 +1,26 @@
+{
+  "_comment": "Frozen copy of the legacy Frappe 'AIS Disbursement Voucher Workflow' (fixtures/workflow.json in the ais-template app), extracted as the drift-detection contract for the rebuilt DvStateMachine. The single C# engine must reproduce exactly these transitions — no more, no less. States carry doc_status to document Frappe's docstatus boundary (0 = editable, 1 = submitted/locked); the lifecycle flips at the first doc_status-1 state ('Approved').",
+  "document_type": "AIS Disbursement Voucher",
+  "workflow_state_field": "workflow_status",
+  "states": [
+    { "state": "Draft", "doc_status": "0", "allow_edit": "AIS Clerk End User" },
+    { "state": "IA Audit Required", "doc_status": "0", "allow_edit": "AIS Internal Auditor" },
+    { "state": "Submitted", "doc_status": "0", "allow_edit": "AIS Accounting Staff" },
+    { "state": "Approved", "doc_status": "1", "allow_edit": "AIS Accounting Approver" },
+    { "state": "Approved for Payment", "doc_status": "1", "allow_edit": "AIS Head of Agency" },
+    { "state": "Posted", "doc_status": "1", "allow_edit": "AIS Accounting Staff" },
+    { "state": "Released", "doc_status": "1", "allow_edit": "AIS Cashier Collector" },
+    { "state": "Closed", "doc_status": "1", "allow_edit": "AIS Accounting Staff" }
+  ],
+  "transitions": [
+    { "state": "Draft", "action": "Route to IA", "next_state": "IA Audit Required", "allowed": "AIS Accounting Staff" },
+    { "state": "Draft", "action": "Route to IA", "next_state": "IA Audit Required", "allowed": "AIS Clerk End User" },
+    { "state": "IA Audit Required", "action": "Submit to Accounting", "next_state": "Submitted", "allowed": "AIS Internal Auditor" },
+    { "state": "IA Audit Required", "action": "Return to Clerk", "next_state": "Draft", "allowed": "AIS Internal Auditor" },
+    { "state": "Submitted", "action": "Approve", "next_state": "Approved", "allowed": "AIS Accounting Approver" },
+    { "state": "Approved", "action": "Approve for Payment", "next_state": "Approved for Payment", "allowed": "AIS Head of Agency" },
+    { "state": "Approved for Payment", "action": "Post", "next_state": "Posted", "allowed": "AIS Accounting Staff" },
+    { "state": "Posted", "action": "Release", "next_state": "Released", "allowed": "AIS Cashier Collector" },
+    { "state": "Released", "action": "Close", "next_state": "Closed", "allowed": "AIS Accounting Staff" }
+  ]
+}

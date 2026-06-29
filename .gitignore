@@ -38,3 +38,6 @@ Thumbs.db
 *.env
 appsettings.*.local.json
 secrets.json
+
+# Claude Code session/agent data
+.claude/

@@ -1,0 +1,357 @@
+{
+  "info": {
+    "name": "CvSU AIS API",
+    "_postman_id": "cvsu-ais-api-collection",
+    "description": "CvSU Accounting Information System API.\n\nAuth is a DEV header scheme: every request sends `X-User` (the acting user) and `X-Roles` (comma-separated). No headers => 401; wrong role => 403.\n\nRun the folders in order with the Collection Runner:\n1. **Budget Execution** seeds an appropriation -> allotment -> obligation (captures `appropriationId`, `allotmentId`).\n2. **DV Lifecycle** creates a DV and walks it Draft -> Closed (captures `dvName`). Each step uses a DIFFERENT user because Segregation of Duties forbids the encoder/approver overlapping.\n3. **Reports** are read-only registries for the current fiscal year.\n\nSeeded funding sources: `01101101` Regular Agency Fund (cluster 01, RAOD) and `05101101` Internally Generated Funds/STF (cluster 05, RBUD).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5186" },
+    { "key": "clerkUser", "value": "clerk1" },
+    { "key": "auditorUser", "value": "auditor1" },
+    { "key": "accountantUser", "value": "accountant1" },
+    { "key": "headUser", "value": "head1" },
+    { "key": "cashierUser", "value": "cashier1" },
+    { "key": "budgetUser", "value": "budget1" },
+    { "key": "fiscalYear", "value": "2026" },
+    { "key": "dvName", "value": "" },
+    { "key": "appropriationId", "value": "" },
+    { "key": "allotmentId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "DV Lifecycle (happy path)",
+      "description": "Draft -> IaAuditRequired -> Submitted -> Approved -> ApprovedForPayment -> Posted -> Released -> Closed. Run top-to-bottom; `Create DV` stores the generated name in {{dvName}}.",
+      "item": [
+        {
+          "name": "Create DV (Accounting Clerk)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('dvName', j.name);",
+                  "console.log('dvName =', j.name);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{clerkUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Encoder" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fiscalYear\": {{fiscalYear}},\n  \"amount\": 15000.00,\n  \"fundingSourceCode\": \"01101101\",\n  \"papCode\": \"100000100001000\",\n  \"locationCode\": \"0102301000\",\n  \"expenseClass\": \"Mooe\",\n  \"objectAccountCode\": \"50203010\",\n  \"budgetCertified\": true,\n  \"internalAuditConfirmed\": true,\n  \"endUserConfirmed\": true,\n  \"accountantSigned\": true\n}"
+            },
+            "description": "Encoder = X-User. Certifications and the accountant signature are set true here so the DV can traverse the whole workflow. `expenseClass` is one of Ps, Mooe, Fe, Co."
+          }
+        },
+        {
+          "name": "List DVs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User", "value": "{{clerkUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Encoder" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers"] },
+            "description": "Any authenticated user may list."
+          }
+        },
+        {
+          "name": "Get DV by name",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User", "value": "{{clerkUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Encoder" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}"] },
+            "description": "Full detail read model (amount, UACS line, certifications, state)."
+          }
+        },
+        {
+          "name": "Request IA Audit (Accounting Clerk)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{clerkUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Encoder" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/request-ia-audit", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "request-ia-audit"] }
+          }
+        },
+        {
+          "name": "Submit (Internal Auditor)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{auditorUser}}" },
+              { "key": "X-Roles", "value": "AIS Internal Auditor" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/submit", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "submit"] }
+          }
+        },
+        {
+          "name": "Approve (Accountant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{accountantUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Approver" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/approve", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "approve"] },
+            "description": "SoD: the accountant must NOT be the encoder ({{clerkUser}}), and all certifications must be present."
+          }
+        },
+        {
+          "name": "Approve for Payment (Head of Agency)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{headUser}}" },
+              { "key": "X-Roles", "value": "AIS Head of Agency" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/approve-for-payment", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "approve-for-payment"] },
+            "description": "SoD: the Head must differ from BOTH the encoder and the approving accountant."
+          }
+        },
+        {
+          "name": "Post (Accountant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{accountantUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Approver" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/post", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "post"] },
+            "description": "Posts to the ledgers. Requires certifications + accountant signature (set at create)."
+          }
+        },
+        {
+          "name": "Release (Cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{cashierUser}}" },
+              { "key": "X-Roles", "value": "AIS Cashier Collector" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/release", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "release"] }
+          }
+        },
+        {
+          "name": "Close (Accountant)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{accountantUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Approver" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/close", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "close"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Budget Execution (Budget Officer)",
+      "description": "Appropriation -> Allotment -> Obligation. All gated to the Budget Officer role. Captures {{appropriationId}} and {{allotmentId}}.",
+      "item": [
+        {
+          "name": "Create Appropriation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('appropriationId', pm.response.json().id);",
+                  "console.log('appropriationId =', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{budgetUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Staff" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/appropriations", "host": ["{{baseUrl}}"], "path": ["api", "appropriations"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fiscalYear\": {{fiscalYear}},\n  \"fundingSourceCode\": \"01101101\",\n  \"papCode\": \"100000100001000\",\n  \"locationCode\": \"0102301000\",\n  \"expenseClass\": \"Mooe\",\n  \"objectAccountCode\": \"50203010\",\n  \"finalAppropriation\": 1000000.00\n}"
+            }
+          }
+        },
+        {
+          "name": "List Appropriations",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User", "value": "{{budgetUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Staff" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/appropriations", "host": ["{{baseUrl}}"], "path": ["api", "appropriations"] }
+          }
+        },
+        {
+          "name": "Allot",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('allotmentId', pm.response.json().id);",
+                  "console.log('allotmentId =', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{budgetUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Staff" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/appropriations/{{appropriationId}}/allotments", "host": ["{{baseUrl}}"], "path": ["api", "appropriations", "{{appropriationId}}", "allotments"] },
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 500000.00\n}" },
+            "description": "Cannot exceed the appropriation's unallotted balance (ceiling enforced under a row lock)."
+          }
+        },
+        {
+          "name": "Obligate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{budgetUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Staff" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/allotments/{{allotmentId}}/obligations", "host": ["{{baseUrl}}"], "path": ["api", "allotments", "{{allotmentId}}", "obligations"] },
+            "body": { "mode": "raw", "raw": "{\n  \"amount\": 200000.00\n}" },
+            "description": "Records an ORS/BURS against the allotment (budget registry only; never the accrual GL). Cannot exceed the allotment's unobligated balance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "description": "Read-only COA registries, viewable by Budget Officer, Accountant, or Head of Agency. `fiscalYear` query is optional (defaults to the current year).",
+      "item": [
+        {
+          "name": "Budget Registry (RAOD / RBUD)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User", "value": "{{accountantUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Approver" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/budget-registry?fiscalYear={{fiscalYear}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "budget-registry"],
+              "query": [{ "key": "fiscalYear", "value": "{{fiscalYear}}" }]
+            }
+          }
+        },
+        {
+          "name": "RAPAL (Appropriation vs Allotment)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User", "value": "{{accountantUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Approver" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/rapal?fiscalYear={{fiscalYear}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "rapal"],
+              "query": [{ "key": "fiscalYear", "value": "{{fiscalYear}}" }]
+            }
+          }
+        },
+        {
+          "name": "Trial Balance",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-User", "value": "{{accountantUser}}" },
+              { "key": "X-Roles", "value": "AIS Accounting Approver" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/reports/trial-balance?fiscalYear={{fiscalYear}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "reports", "trial-balance"],
+              "query": [{ "key": "fiscalYear", "value": "{{fiscalYear}}" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth & alternate flows",
+      "description": "Negative checks and the alternate DV branch.",
+      "item": [
+        {
+          "name": "Return to Clerk (alternate branch)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{auditorUser}}" },
+              { "key": "X-Roles", "value": "AIS Internal Auditor" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers/{{dvName}}/return-to-clerk", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers", "{{dvName}}", "return-to-clerk"] },
+            "description": "Only legal from IaAuditRequired (sends the DV back to Draft). Not part of the happy path; run it instead of Submit to exercise the bounce-back."
+          }
+        },
+        {
+          "name": "List DVs - no auth (expect 401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": ["pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"] }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers"] }
+          }
+        },
+        {
+          "name": "Create DV - wrong role (expect 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": { "type": "text/javascript", "exec": ["pm.test('403 Forbidden', () => pm.response.to.have.status(403));"] }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-User", "value": "{{cashierUser}}" },
+              { "key": "X-Roles", "value": "AIS Cashier Collector" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/disbursement-vouchers", "host": ["{{baseUrl}}"], "path": ["api", "disbursement-vouchers"] },
+            "body": { "mode": "raw", "raw": "{\n  \"fiscalYear\": {{fiscalYear}},\n  \"amount\": 1000.00,\n  \"fundingSourceCode\": \"01101101\"\n}" },
+            "description": "A Cashier may not create a DV (only the Accounting Clerk holds dv:create)."
+          }
+        }
+      ]
+    }
+  ]
+}

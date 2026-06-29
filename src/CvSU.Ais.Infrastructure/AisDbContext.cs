@@ -21,6 +21,7 @@ public sealed class AisDbContext(DbContextOptions<AisDbContext> options) : DbCon
     public DbSet<FundingSourceRow> FundingSources => Set<FundingSourceRow>();
     public DbSet<VoucherCounter> VoucherCounters => Set<VoucherCounter>();
     public DbSet<DisbursementVoucherRow> DisbursementVouchers => Set<DisbursementVoucherRow>();
+    public DbSet<OfficialReceiptRow> OfficialReceipts => Set<OfficialReceiptRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -105,20 +106,68 @@ public sealed class AisDbContext(DbContextOptions<AisDbContext> options) : DbCon
             e.Property(x => x.Name).HasMaxLength(140);
             e.Property(x => x.Encoder).HasMaxLength(140);
             e.Property(x => x.Amount).HasPrecision(18, 2);
+            e.Property(x => x.TaxWithheld).HasPrecision(18, 2);
+            e.Property(x => x.DvType).HasConversion<string>().HasMaxLength(16);
             e.Property(x => x.FundingSourceCode).HasMaxLength(20);
             e.Property(x => x.Lifecycle).HasMaxLength(16);
             e.Property(x => x.Status).HasMaxLength(32);
             e.Property(x => x.ApprovedBy).HasMaxLength(140);
             e.Property(x => x.ApprovedForPaymentBy).HasMaxLength(140);
+            // Certification audit trail: the certifying officer per certification.
+            e.Property(x => x.BudgetCertifiedBy).HasMaxLength(140);
+            e.Property(x => x.InternalAuditConfirmedBy).HasMaxLength(140);
+            e.Property(x => x.EndUserConfirmedBy).HasMaxLength(140);
+            e.Property(x => x.AccountantSignedBy).HasMaxLength(140);
+            e.Property(x => x.SupplyPropertySignedOffBy).HasMaxLength(140);
             e.Property(x => x.PapCode).HasMaxLength(40);
             e.Property(x => x.LocationCode).HasMaxLength(40);
             e.Property(x => x.ExpenseClass).HasConversion<string>().HasMaxLength(8);
             e.Property(x => x.ObjectAccountCode).HasMaxLength(20);
+            e.Property(x => x.ControlNumber).HasMaxLength(40);
+            e.Property(x => x.PaymentMethod).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.PaymentReference).HasMaxLength(64);
             e.HasIndex(x => x.Status);
+
+            // Control numbers are gapless, hence unique — a DB partial unique index
+            // backs the application's gapless generator (NULL until approval).
+            e.HasIndex(x => x.ControlNumber)
+                .IsUnique()
+                .HasFilter("control_number IS NOT NULL");
+
+            // A payment instrument's reference is unique per method across all DVs —
+            // the database backstop to the repository's duplicate-disbursement check.
+            e.HasIndex(x => new { x.PaymentMethod, x.PaymentReference })
+                .IsUnique()
+                .HasFilter("payment_reference IS NOT NULL");
+
             e.HasOne<FundingSourceRow>()
                 .WithMany()
                 .HasForeignKey(x => x.FundingSourceCode)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<OfficialReceiptRow>(e =>
+        {
+            e.ToTable("official_receipt");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).UseIdentityByDefaultColumn();
+            e.Property(x => x.OrNumber).HasMaxLength(40);
+            e.Property(x => x.IdempotencyKey).HasMaxLength(64);
+            e.Property(x => x.Payor).HasMaxLength(200);
+            e.Property(x => x.AmountPaid).HasPrecision(18, 2);
+            e.Property(x => x.Mode).HasMaxLength(16);
+            e.Property(x => x.FeeType).HasMaxLength(16);
+            e.Property(x => x.FundCluster).HasMaxLength(8);
+            e.Property(x => x.PaidToAccount).HasMaxLength(20);
+            e.Property(x => x.CreditAccount).HasMaxLength(20);
+            e.Property(x => x.CostCenter).HasMaxLength(40);
+            e.Property(x => x.Status).HasMaxLength(16);
+
+            // The OR number is the gapless legal identity — unique.
+            e.HasIndex(x => x.OrNumber).IsUnique();
+            // The idempotency key is the durable offline-replay backstop: a racing duplicate
+            // replay fails the insert here rather than creating a second receipt + GL posting.
+            e.HasIndex(x => x.IdempotencyKey).IsUnique();
         });
     }
 }

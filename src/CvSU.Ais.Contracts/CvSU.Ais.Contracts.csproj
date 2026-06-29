@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared wire/domain contracts referenced by BOTH the API (this solution) and the
+       Blazor web client (../../cvsu-ais-web). Pure, dependency-free types so a single
+       definition can't drift between server and client. Keep it free of any framework
+       or infrastructure dependency. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

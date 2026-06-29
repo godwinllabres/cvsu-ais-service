@@ -1,6 +1,6 @@
 using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Budget;
-using CvSU.Ais.Domain.Funds;
+using CvSU.Ais.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -11,20 +11,9 @@ namespace CvSU.Ais.Api.Controllers;
 [Authorize(Policy = BudgetPolicies.Manage)]
 public sealed class AppropriationsController(BudgetExecutionService budget) : ControllerBase
 {
-    public sealed record CreateAppropriationRequest(
-        int FiscalYear,
-        string FundingSourceCode,
-        string PapCode,
-        string LocationCode,
-        ExpenseClass ExpenseClass,
-        string ObjectAccountCode,
-        decimal FinalAppropriation);
-
-    public sealed record AllotRequest(decimal Amount);
-
     [HttpPost]
     public async Task<ActionResult<AppropriationView>> Create(
-        CreateAppropriationRequest request, CancellationToken cancellationToken)
+        AppropriationCreateRequest request, CancellationToken cancellationToken)
     {
         var command = new CreateAppropriationCommand(
             request.FiscalYear, request.FundingSourceCode, request.PapCode, request.LocationCode,
@@ -40,7 +29,7 @@ public sealed class AppropriationsController(BudgetExecutionService budget) : Co
 
     [HttpPost("{appropriationId}/allotments")]
     public async Task<ActionResult<AllotmentView>> Allot(
-        string appropriationId, AllotRequest request, CancellationToken cancellationToken)
+        string appropriationId, AmountRequest request, CancellationToken cancellationToken)
     {
         var view = await budget.AllotAsync(appropriationId, request.Amount, cancellationToken);
         return Ok(view);

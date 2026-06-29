@@ -17,6 +17,10 @@ public sealed class PostgresFixture : IAsyncLifetime
         .WithImage("postgres:17")
         .Build();
 
+    /// <summary>The container's connection string, so the WebApplicationFactory-based
+    /// HTTP tests boot the real API against this same isolated database.</summary>
+    public string ConnectionString => _container.GetConnectionString();
+
     public async Task InitializeAsync()
     {
         await _container.StartAsync();

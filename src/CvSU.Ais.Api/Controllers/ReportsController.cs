@@ -1,5 +1,6 @@
 using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Reports;
+using CvSU.Ais.Contracts;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json.Serialization;
 using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Api.ErrorHandling;
@@ -6,11 +7,20 @@ using CvSU.Ais.Domain.Budget;
 using CvSU.Ais.Domain.Disbursement;
 using CvSU.Ais.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 const string SpaCorsPolicy = "spa";
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    // Pin the content root to the EXE's own directory so appsettings.json is always loaded
+    // from beside the binary, regardless of the launcher's working directory. Without this,
+    // launching the exe from any other CWD silently skips appsettings (e.g. FrappeAuth:Enabled
+    // defaults to false → the service drops back to dev-header auth and rejects Bearer tokens).
+    ContentRootPath = AppContext.BaseDirectory,
+});
 
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? "Host=localhost;Port=5432;Database=cvsu_ais;Username=postgres;Password=postgres";
@@ -18,25 +28,77 @@ var connectionString = builder.Configuration.GetConnectionString("Postgres")
 builder.Services.AddInfrastructure(connectionString);
 builder.Services.AddApplication();
 
+// Authentication. Two schemes are registered; the DEFAULT is chosen by config:
+//   • FrappeAuth:Enabled = true  → trust Frappe-issued OAuth tokens (introspection). Production.
+//   • FrappeAuth:Enabled = false → dev header (X-User/X-Roles). Local dev, Postman, offline desktop.
+// Both stay registered so flipping the switch needs no code change. See SSO_DESIGN.md.
+builder.Services.Configure<FrappeAuthOptions>(
+    builder.Configuration.GetSection(FrappeAuthOptions.SectionName));
+var frappeAuthEnabled = builder.Configuration
+    .GetSection(FrappeAuthOptions.SectionName).GetValue<bool>(nameof(FrappeAuthOptions.Enabled));
+
+// Hardening: the dev-header scheme trusts client-supplied X-Roles verbatim (a caller can
+// self-grant any role, including the System Manager / Administrator escape hatch). It must
+// therefore NEVER be the active scheme outside Development. Fail fast at startup rather than
+// silently drop a misconfigured staging/production instance into "trust any role" mode — the
+// exact footgun the FrappeAuth comment above warns about.
+if (!frappeAuthEnabled && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException(
+        $"Dev-header authentication ({FrappeAuthOptions.SectionName}:{nameof(FrappeAuthOptions.Enabled)}=false) is " +
+        $"only permitted in the Development environment (current: '{builder.Environment.EnvironmentName}'). " +
+        $"Set {FrappeAuthOptions.SectionName}:{nameof(FrappeAuthOptions.Enabled)}=true to use Frappe token introspection.");
+
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient(FrappeIntrospectionAuthenticationHandler.SchemeName);
+
 builder.Services
-    .AddAuthentication(DevHeaderAuthenticationHandler.SchemeName)
+    .AddAuthentication(frappeAuthEnabled
+        ? FrappeIntrospectionAuthenticationHandler.SchemeName
+        : DevHeaderAuthenticationHandler.SchemeName)
     .AddScheme<AuthenticationSchemeOptions, DevHeaderAuthenticationHandler>(
-        DevHeaderAuthenticationHandler.SchemeName, _ => { });
+        DevHeaderAuthenticationHandler.SchemeName, _ => { })
+    .AddScheme<AuthenticationSchemeOptions, FrappeIntrospectionAuthenticationHandler>(
+        FrappeIntrospectionAuthenticationHandler.SchemeName, _ => { });
+
+// A policy is satisfied by the listed role(s) OR by an administrator role — the SoD escape
+// hatch, giving a Frappe System Manager / Administrator full access (the domain grants the
+// same via TransitionContext.IsAdministrator, so the two layers stay consistent). SECURITY:
+// the bypass is keyed on the ROLE (TransitionContext.AdminRoles), never the username — the
+// dev-header scheme lets a caller assert any username, so a username check would be trivially
+// forgeable. Authentication is still required, exactly as RequireRole demands.
+static Action<AuthorizationPolicyBuilder> RoleOrAdmin(params string[] roles) =>
+    policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(ctx =>
+        {
+            // Case-insensitive, matching the domain's TransitionContext (OrdinalIgnoreCase) —
+            // ctx.User.IsInRole is ordinal/case-sensitive, which would make the HTTP gate and
+            // the domain disagree on role casing.
+            var held = new HashSet<string>(
+                ctx.User.FindAll(ClaimTypes.Role).Select(c => c.Value), StringComparer.OrdinalIgnoreCase);
+            return roles.Any(held.Contains) || TransitionContext.AdminRoles.Any(held.Contains);
+        });
 
 // One policy per DV transition, each bound to the role the domain also enforces.
 builder.Services.AddAuthorizationBuilder()
-    .AddPolicy(DvPolicies.Create, p => p.RequireRole(DvRoles.Encoder))
-    .AddPolicy(DvPolicies.RequestIaAudit, p => p.RequireRole(DvRoles.Encoder))
-    .AddPolicy(DvPolicies.Submit, p => p.RequireRole(DvRoles.Encoder))
-    .AddPolicy(DvPolicies.Approve, p => p.RequireRole(DvRoles.Accountant))
-    .AddPolicy(DvPolicies.ApproveForPayment, p => p.RequireRole(DvRoles.HeadOfAgency))
-    .AddPolicy(DvPolicies.Post, p => p.RequireRole(DvRoles.Accountant))
-    .AddPolicy(DvPolicies.Release, p => p.RequireRole(DvRoles.Treasury))
-    .AddPolicy(DvPolicies.Close, p => p.RequireRole(DvRoles.Accountant))
-    .AddPolicy(DvPolicies.Reject, p => p.RequireRole(DvRoles.Accountant, DvRoles.HeadOfAgency))
-    .AddPolicy(BudgetPolicies.Manage, p => p.RequireRole(BudgetRoles.BudgetOfficer))
-    .AddPolicy(ReportPolicies.View, p => p.RequireRole(
-        BudgetRoles.BudgetOfficer, DvRoles.Accountant, DvRoles.HeadOfAgency));
+    .AddPolicy(DvPolicies.Create, RoleOrAdmin(DvRoles.Encoder))
+    .AddPolicy(DvPolicies.Edit, RoleOrAdmin(DvRoles.Encoder))
+    .AddPolicy(DvPolicies.RequestIaAudit, RoleOrAdmin(DvRoles.Encoder))
+    // "Submit to Accounting" and "Return to Clerk" are the Internal Auditor's calls.
+    .AddPolicy(DvPolicies.Submit, RoleOrAdmin(DvRoles.InternalAuditor))
+    .AddPolicy(DvPolicies.ReturnToClerk, RoleOrAdmin(DvRoles.InternalAuditor))
+    .AddPolicy(DvPolicies.Approve, RoleOrAdmin(DvRoles.Accountant))
+    .AddPolicy(DvPolicies.ApproveForPayment, RoleOrAdmin(DvRoles.HeadOfAgency))
+    .AddPolicy(DvPolicies.Post, RoleOrAdmin(DvRoles.Accountant))
+    .AddPolicy(DvPolicies.Release, RoleOrAdmin(DvRoles.Treasury))
+    // The cashier captures the cheque/ADA/transfer reference around release.
+    .AddPolicy(DvPolicies.RecordPayment, RoleOrAdmin(DvRoles.Treasury))
+    .AddPolicy(DvPolicies.Close, RoleOrAdmin(DvRoles.Accountant))
+    .AddPolicy(BudgetPolicies.Manage, RoleOrAdmin(BudgetRoles.BudgetOfficer))
+    .AddPolicy(ReportPolicies.View, RoleOrAdmin(
+        BudgetRoles.BudgetOfficer, DvRoles.Accountant, DvRoles.HeadOfAgency))
+    // Collections are recorded by the Cashier / Collecting Officer.
+    .AddPolicy(CollectionsPolicies.Record, RoleOrAdmin(DvRoles.Treasury));
 
 builder.Services
     .AddControllers()
