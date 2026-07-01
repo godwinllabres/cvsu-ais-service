@@ -86,8 +86,58 @@ public sealed class ObligationRequestService(
     IBudgetLedger budgetLedger,
     IUnitOfWork unitOfWork)
 {
-    public Task<OrsView> CreateAsync(CreateOrsCommand command, CancellationToken ct = default) =>
-        repo.AddAsync(command, ct);
+    /// <summary>
+    /// The only legal forward path is Draft → Submitted → Reviewed → FundVerified → Signed.
+    /// Cancellation is allowed only from pre-Signed states. Any transition not listed here
+    /// is rejected — mirroring the spirit of <c>DvStateMachine</c>, this table is the sole
+    /// authority on status changes, so the FundVerified → Reviewed reversal and any move out
+    /// of a terminal state (Signed/Cancelled) are structurally impossible.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string[]> AllowedTransitions =
+        new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["Draft"] = ["Submitted", "Cancelled"],
+            ["Submitted"] = ["Reviewed", "Cancelled"],
+            ["Reviewed"] = ["FundVerified", "Cancelled"],
+            ["FundVerified"] = ["Signed", "Cancelled"],
+            ["Signed"] = [],
+            ["Cancelled"] = [],
+        };
+
+    /// <summary>Loads the ORS/BURS and asserts <paramref name="target"/> is a legal
+    /// transition from its current status, throwing otherwise.</summary>
+    private async Task<OrsDetailView> EnsureTransitionAllowed(
+        string name, string target, CancellationToken ct)
+    {
+        var detail = await repo.GetAsync(name, ct)
+            ?? throw new KeyNotFoundException($"ORS/BURS '{name}' not found.");
+
+        if (!AllowedTransitions.TryGetValue(detail.Status, out var allowed)
+            || !allowed.Contains(target, StringComparer.Ordinal))
+            throw new InvalidOperationException(
+                $"'{target}' is not a legal transition for ORS/BURS '{name}' from '{detail.Status}'. " +
+                $"Legal next states here: {(allowed is { Length: > 0 } ? string.Join(", ", allowed) : "(none — terminal state)")}.");
+
+        return detail;
+    }
+
+    public Task<OrsView> CreateAsync(CreateOrsCommand command, CancellationToken ct = default)
+    {
+        if (command.Amount <= 0m)
+            throw new ArgumentException(
+                "ORS/BURS amount must be greater than zero.", nameof(command));
+
+        if (command.LineItems is { Count: > 0 })
+        {
+            var lineTotal = command.LineItems.Sum(li => li.Amount);
+            if (Math.Abs(lineTotal - command.Amount) > 0.01m)
+                throw new ArgumentException(
+                    $"ORS/BURS header amount {command.Amount:N2} does not reconcile with the sum of line "
+                    + $"amounts {lineTotal:N2}.", nameof(command));
+        }
+
+        return repo.AddAsync(command, ct);
+    }
 
     public Task<IReadOnlyList<OrsView>> ListAsync(CancellationToken ct = default) =>
         repo.ListAsync(ct);
@@ -100,12 +150,14 @@ public sealed class ObligationRequestService(
 
     public async Task<OrsView> SubmitAsync(string name, CancellationToken ct = default)
     {
+        await EnsureTransitionAllowed(name, "Submitted", ct);
         await repo.UpdateStatusAsync(name, "Submitted", ct);
         return await GetViewOrThrow(name, ct);
     }
 
     public async Task<OrsView> ReviewAsync(string name, CancellationToken ct = default)
     {
+        await EnsureTransitionAllowed(name, "Reviewed", ct);
         await repo.UpdateStatusAsync(name, "Reviewed", ct);
         return await GetViewOrThrow(name, ct);
     }
@@ -119,12 +171,10 @@ public sealed class ObligationRequestService(
         string name, string allotmentId, CancellationToken ct = default) =>
         unitOfWork.ExecuteInTransactionAsync(async token =>
         {
-            var detail = await repo.GetAsync(name, token)
-                ?? throw new KeyNotFoundException($"ORS/BURS '{name}' not found.");
-
-            if (detail.Status != "Reviewed")
-                throw new InvalidOperationException(
-                    $"ORS/BURS '{name}' must be Reviewed before fund-verification (current: {detail.Status}).");
+            // Re-read under the transaction and gate on the transition table. Because the
+            // only legal predecessor of FundVerified is Reviewed, an ORS that is already
+            // FundVerified or Signed is rejected here — so Allotment.Obligate cannot run twice.
+            var detail = await EnsureTransitionAllowed(name, "FundVerified", token);
 
             var snapshot = await budgetLedger.LockAllotmentAsync(allotmentId, token)
                 ?? throw new KeyNotFoundException(
@@ -156,12 +206,14 @@ public sealed class ObligationRequestService(
 
     public async Task<OrsView> SignAsync(string name, CancellationToken ct = default)
     {
+        await EnsureTransitionAllowed(name, "Signed", ct);
         await repo.UpdateStatusAsync(name, "Signed", ct);
         return await GetViewOrThrow(name, ct);
     }
 
     public async Task<OrsView> CancelAsync(string name, CancellationToken ct = default)
     {
+        await EnsureTransitionAllowed(name, "Cancelled", ct);
         await repo.UpdateStatusAsync(name, "Cancelled", ct);
         return await GetViewOrThrow(name, ct);
     }

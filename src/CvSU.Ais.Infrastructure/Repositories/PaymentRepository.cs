@@ -7,7 +7,10 @@ namespace CvSU.Ais.Infrastructure.Repositories;
 
 // ─── LDDAP-ADA Repository ────────────────────────────────────────────────────
 
-public sealed class LddapAdaRepository(AisDbContext db) : ILddapAdaRepository
+public sealed class LddapAdaRepository(
+    AisDbContext db,
+    IVoucherNumberGenerator numbers,
+    IUnitOfWork unitOfWork) : ILddapAdaRepository
 {
     public async Task<IReadOnlyList<LddapAdaView>> ListAsync(CancellationToken ct)
     {
@@ -57,67 +60,55 @@ public sealed class LddapAdaRepository(AisDbContext db) : ILddapAdaRepository
             items);
     }
 
-    public async Task<LddapAdaView> AddAsync(CreateLddapAdaCommand cmd, CancellationToken ct)
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var shortId = Guid.NewGuid().ToString("N")[..6].ToUpperInvariant();
-        var series = $"LDDAP-{today:yyyyMM}";
-
-        var counter = await db.Set<VoucherCounter>()
-            .Where(c => c.Series == series)
-            .FirstOrDefaultAsync(ct);
-
-        if (counter is null)
+    public Task<LddapAdaView> AddAsync(CreateLddapAdaCommand cmd, CancellationToken ct) =>
+        unitOfWork.ExecuteInTransactionAsync(async token =>
         {
-            counter = new VoucherCounter { Series = series, Current = 0 };
-            db.Add(counter);
-        }
+            var today = DateOnly.FromDateTime(DateTime.UtcNow);
+            var series = $"LDDAP-{today:yyyyMM}";
+            var name = await numbers.NextAsync(series, token);
 
-        counter.Current++;
-        var name = $"{series}-{counter.Current:D5}";
+            var totalAmount = cmd.Items.Sum(i => i.NetAmount);
 
-        var totalAmount = cmd.Items.Sum(i => i.NetAmount);
-
-        var row = new LddapAdaRow
-        {
-            Name = name,
-            PeriodFrom = cmd.PeriodFrom,
-            PeriodTo = cmd.PeriodTo,
-            FundCluster = cmd.FundCluster,
-            BankName = cmd.BankName,
-            BankAccountNumber = cmd.BankAccountNumber,
-            TotalAmount = totalAmount,
-            TotalPayees = cmd.Items.Count,
-            ApprovalStatus = "Draft",
-            TransmittedDate = null,
-            Remarks = cmd.Remarks,
-        };
-
-        db.Add(row);
-
-        foreach (var item in cmd.Items)
-        {
-            db.Add(new LddapAdaItemRow
+            var row = new LddapAdaRow
             {
-                ParentLddapName = name,
-                DvReference = item.DvReference,
-                PayeeName = item.PayeeName,
-                PayeeAccountNumber = item.PayeeAccountNumber,
-                BankName = item.BankName,
-                NetAmount = item.NetAmount,
-            });
-        }
+                Name = name,
+                PeriodFrom = cmd.PeriodFrom,
+                PeriodTo = cmd.PeriodTo,
+                FundCluster = cmd.FundCluster,
+                BankName = cmd.BankName,
+                BankAccountNumber = cmd.BankAccountNumber,
+                TotalAmount = totalAmount,
+                TotalPayees = cmd.Items.Count,
+                ApprovalStatus = "Draft",
+                TransmittedDate = null,
+                Remarks = cmd.Remarks,
+            };
 
-        await db.SaveChangesAsync(ct);
+            db.Add(row);
 
-        return new LddapAdaView(
-            row.Name,
-            row.PeriodFrom,
-            row.PeriodTo,
-            row.ApprovalStatus,
-            row.TotalAmount,
-            row.TotalPayees);
-    }
+            foreach (var item in cmd.Items)
+            {
+                db.Add(new LddapAdaItemRow
+                {
+                    ParentLddapName = name,
+                    DvReference = item.DvReference,
+                    PayeeName = item.PayeeName,
+                    PayeeAccountNumber = item.PayeeAccountNumber,
+                    BankName = item.BankName,
+                    NetAmount = item.NetAmount,
+                });
+            }
+
+            await db.SaveChangesAsync(token);
+
+            return new LddapAdaView(
+                row.Name,
+                row.PeriodFrom,
+                row.PeriodTo,
+                row.ApprovalStatus,
+                row.TotalAmount,
+                row.TotalPayees);
+        }, ct);
 
     public async Task UpdateStatusAsync(string name, string status, DateOnly? transmittedDate, CancellationToken ct)
     {
@@ -135,7 +126,10 @@ public sealed class LddapAdaRepository(AisDbContext db) : ILddapAdaRepository
 
 // ─── DV Transmittal Repository ───────────────────────────────────────────────
 
-public sealed class DvTransmittalRepository(AisDbContext db) : IDvTransmittalRepository
+public sealed class DvTransmittalRepository(
+    AisDbContext db,
+    IVoucherNumberGenerator numbers,
+    IUnitOfWork unitOfWork) : IDvTransmittalRepository
 {
     public async Task<IReadOnlyList<DvTransmittalView>> ListAsync(CancellationToken ct)
     {
@@ -183,64 +177,53 @@ public sealed class DvTransmittalRepository(AisDbContext db) : IDvTransmittalRep
             items);
     }
 
-    public async Task<DvTransmittalView> AddAsync(CreateDvTransmittalCommand cmd, CancellationToken ct)
-    {
-        var year = cmd.TransmittalDate.Year;
-        var series = $"TRANS-{year}";
-
-        var counter = await db.Set<VoucherCounter>()
-            .Where(c => c.Series == series)
-            .FirstOrDefaultAsync(ct);
-
-        if (counter is null)
+    public Task<DvTransmittalView> AddAsync(CreateDvTransmittalCommand cmd, CancellationToken ct) =>
+        unitOfWork.ExecuteInTransactionAsync(async token =>
         {
-            counter = new VoucherCounter { Series = series, Current = 0 };
-            db.Add(counter);
-        }
+            var year = cmd.TransmittalDate.Year;
+            var series = $"TRANS-{year}";
+            var name = await numbers.NextAsync(series, token);
 
-        counter.Current++;
-        var name = $"{series}-{counter.Current:D5}";
+            var totalAmount = cmd.Items.Sum(i => i.DvAmount);
 
-        var totalAmount = cmd.Items.Sum(i => i.DvAmount);
-
-        var row = new DvTransmittalRow
-        {
-            Name = name,
-            TransmittalDate = cmd.TransmittalDate,
-            TransmittingOfficer = cmd.TransmittingOfficer,
-            ReceivingCashier = cmd.ReceivingCashier,
-            AccountantName = null,
-            AccountantSignatureConfirmed = false,
-            TotalAmount = totalAmount,
-            TotalDvCount = cmd.Items.Count,
-            Status = "Draft",
-            ReceivedByCashier = null,
-            ReceivedDate = null,
-            Remarks = cmd.Remarks,
-        };
-
-        db.Add(row);
-
-        foreach (var item in cmd.Items)
-        {
-            db.Add(new DvTransmittalItemRow
+            var row = new DvTransmittalRow
             {
-                ParentTransmittalName = name,
-                DvReference = item.DvReference,
-                DvAmount = item.DvAmount,
-                Remarks = item.Remarks,
-            });
-        }
+                Name = name,
+                TransmittalDate = cmd.TransmittalDate,
+                TransmittingOfficer = cmd.TransmittingOfficer,
+                ReceivingCashier = cmd.ReceivingCashier,
+                AccountantName = null,
+                AccountantSignatureConfirmed = false,
+                TotalAmount = totalAmount,
+                TotalDvCount = cmd.Items.Count,
+                Status = "Draft",
+                ReceivedByCashier = null,
+                ReceivedDate = null,
+                Remarks = cmd.Remarks,
+            };
 
-        await db.SaveChangesAsync(ct);
+            db.Add(row);
 
-        return new DvTransmittalView(
-            row.Name,
-            row.TransmittalDate,
-            row.TransmittingOfficer,
-            row.Status,
-            row.TotalAmount);
-    }
+            foreach (var item in cmd.Items)
+            {
+                db.Add(new DvTransmittalItemRow
+                {
+                    ParentTransmittalName = name,
+                    DvReference = item.DvReference,
+                    DvAmount = item.DvAmount,
+                    Remarks = item.Remarks,
+                });
+            }
+
+            await db.SaveChangesAsync(token);
+
+            return new DvTransmittalView(
+                row.Name,
+                row.TransmittalDate,
+                row.TransmittingOfficer,
+                row.Status,
+                row.TotalAmount);
+        }, ct);
 
     public async Task UpdateStatusAsync(string name, string status, string? receivedBy, DateOnly? receivedDate, CancellationToken ct)
     {
@@ -260,7 +243,10 @@ public sealed class DvTransmittalRepository(AisDbContext db) : IDvTransmittalRep
 
 // ─── Audit Intake Repository ─────────────────────────────────────────────────
 
-public sealed class AuditIntakeRepository(AisDbContext db) : IAuditIntakeRepository
+public sealed class AuditIntakeRepository(
+    AisDbContext db,
+    IVoucherNumberGenerator numbers,
+    IUnitOfWork unitOfWork) : IAuditIntakeRepository
 {
     public async Task<IReadOnlyList<AuditIntakeView>> ListAsync(CancellationToken ct)
     {
@@ -294,46 +280,35 @@ public sealed class AuditIntakeRepository(AisDbContext db) : IAuditIntakeReposit
             row.Status);
     }
 
-    public async Task<AuditIntakeView> AddAsync(CreateAuditIntakeCommand cmd, CancellationToken ct)
-    {
-        var year = cmd.ReceivedTimestamp.Year;
-        var series = $"AIA-{year}";
-
-        var counter = await db.Set<VoucherCounter>()
-            .Where(c => c.Series == series)
-            .FirstOrDefaultAsync(ct);
-
-        if (counter is null)
+    public Task<AuditIntakeView> AddAsync(CreateAuditIntakeCommand cmd, CancellationToken ct) =>
+        unitOfWork.ExecuteInTransactionAsync(async token =>
         {
-            counter = new VoucherCounter { Series = series, Current = 0 };
-            db.Add(counter);
-        }
+            var year = cmd.ReceivedTimestamp.Year;
+            var series = $"AIA-{year}";
+            var name = await numbers.NextAsync(series, token);
 
-        counter.Current++;
-        var name = $"{series}-{counter.Current:D5}";
+            var row = new AuditIntakeRow
+            {
+                Name = name,
+                DisbursementVoucherName = cmd.DisbursementVoucherName,
+                ReceivedTimestamp = cmd.ReceivedTimestamp,
+                RecordedTimestamp = null,
+                AuditResult = "Pending",
+                Findings = null,
+                ReleasedTimestamp = null,
+                ReleasedTo = null,
+                Status = "Received",
+            };
 
-        var row = new AuditIntakeRow
-        {
-            Name = name,
-            DisbursementVoucherName = cmd.DisbursementVoucherName,
-            ReceivedTimestamp = cmd.ReceivedTimestamp,
-            RecordedTimestamp = null,
-            AuditResult = "Pending",
-            Findings = null,
-            ReleasedTimestamp = null,
-            ReleasedTo = null,
-            Status = "Received",
-        };
+            db.Add(row);
+            await db.SaveChangesAsync(token);
 
-        db.Add(row);
-        await db.SaveChangesAsync(ct);
-
-        return new AuditIntakeView(
-            row.Name,
-            row.DisbursementVoucherName,
-            row.Status,
-            row.AuditResult);
-    }
+            return new AuditIntakeView(
+                row.Name,
+                row.DisbursementVoucherName,
+                row.Status,
+                row.AuditResult);
+        }, ct);
 
     public async Task UpdateAsync(
         string name,

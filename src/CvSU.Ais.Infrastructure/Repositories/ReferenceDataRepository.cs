@@ -24,6 +24,11 @@ public sealed class PapCodeRepository(AisDbContext db) : IPapCodeRepository
 
     public async Task<PapCodeView> AddAsync(CreatePapCodeCommand command, CancellationToken cancellationToken = default)
     {
+        var exists = await db.Set<PapCodeRow>()
+            .AnyAsync(x => x.Code == command.Code, cancellationToken);
+        if (exists)
+            throw new InvalidOperationException($"PAP code '{command.Code}' already exists.");
+
         var row = new PapCodeRow
         {
             Code        = command.Code,
@@ -56,6 +61,11 @@ public sealed class LocationCodeRepository(AisDbContext db) : ILocationCodeRepos
 
     public async Task<LocationCodeView> AddAsync(CreateLocationCodeCommand command, CancellationToken cancellationToken = default)
     {
+        var exists = await db.Set<LocationCodeRow>()
+            .AnyAsync(x => x.PsgcCode == command.PsgcCode, cancellationToken);
+        if (exists)
+            throw new InvalidOperationException($"Location code '{command.PsgcCode}' already exists.");
+
         var row = new LocationCodeRow
         {
             PsgcCode     = command.PsgcCode,
@@ -89,6 +99,11 @@ public sealed class OperationalFundRepository(AisDbContext db) : IOperationalFun
 
     public async Task<OperationalFundView> AddAsync(CreateOperationalFundCommand command, CancellationToken cancellationToken = default)
     {
+        var exists = await db.Set<OperationalFundRow>()
+            .AnyAsync(x => x.Code == command.Code, cancellationToken);
+        if (exists)
+            throw new InvalidOperationException($"Operational fund '{command.Code}' already exists.");
+
         var row = new OperationalFundRow
         {
             Code              = command.Code,

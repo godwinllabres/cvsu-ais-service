@@ -48,6 +48,12 @@ public sealed record CreatePayrollEntryCommand(
     string PayrollPeriod,
     DateOnly PostingDate,
     string? FundCluster,
+    decimal TotalGrossPay,
+    decimal TotalTaxWithheld,
+    decimal TotalGsis,
+    decimal TotalPagibig,
+    decimal TotalPhilhealth,
+    int TotalRecords,
     IReadOnlyList<PayrollLoanDeductionDto> LoanDeductions,
     string? Remarks);
 
@@ -175,8 +181,23 @@ public sealed class PayrollEntryService(
 
     public Task<PayrollEntryView> CreateAsync(
         CreatePayrollEntryCommand command,
-        CancellationToken cancellationToken = default) =>
-        repo.AddAsync(command, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (command.TotalGrossPay < 0m)
+            throw new ArgumentException("Total gross pay cannot be negative.", nameof(command));
+        if (command.TotalTaxWithheld < 0m)
+            throw new ArgumentException("Total tax withheld cannot be negative.", nameof(command));
+        if (command.TotalGsis < 0m)
+            throw new ArgumentException("Total GSIS cannot be negative.", nameof(command));
+        if (command.TotalPagibig < 0m)
+            throw new ArgumentException("Total Pag-IBIG cannot be negative.", nameof(command));
+        if (command.TotalPhilhealth < 0m)
+            throw new ArgumentException("Total PhilHealth cannot be negative.", nameof(command));
+        if (command.TotalRecords < 0)
+            throw new ArgumentException("Total records cannot be negative.", nameof(command));
+
+        return repo.AddAsync(command, cancellationToken);
+    }
 
     public async Task ValidateAsync(string name, CancellationToken cancellationToken = default)
     {
@@ -201,6 +222,13 @@ public sealed class PayrollEntryService(
             if (entry.Status != "Validated")
                 throw new InvalidOperationException(
                     $"Payroll entry '{name}' must be Validated before posting (current: {entry.Status}).");
+
+            if (entry.TotalGrossPay <= 0m)
+                throw new InvalidOperationException("Payroll has no imported figures to post.");
+
+            if (entry.TotalNetPay < 0m)
+                throw new InvalidOperationException(
+                    $"Payroll entry '{name}' has a negative net pay and cannot be posted.");
 
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
             var fiscalYear = today.Year;

@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.CashAdvances;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,6 +23,7 @@ public sealed class LiquidationReportsController(LiquidationReportService servic
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = CashAdvancePolicies.Manage)]
     public async Task<ActionResult<LiquidationReportDetailView>> Create(
         CreateLiquidationReportRequest request,
         CancellationToken cancellationToken)
@@ -45,6 +47,7 @@ public sealed class LiquidationReportsController(LiquidationReportService servic
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/submit")]
+    [Authorize(Policy = CashAdvancePolicies.Manage)]
     public async Task<IActionResult> Submit(
         string name,
         CancellationToken cancellationToken)
@@ -54,6 +57,7 @@ public sealed class LiquidationReportsController(LiquidationReportService servic
     }
 
     [HttpPost("{name}/post")]
+    [Authorize(Policy = CashAdvancePolicies.Post)]
     public async Task<IActionResult> Post(
         string name,
         CancellationToken cancellationToken)
@@ -63,6 +67,7 @@ public sealed class LiquidationReportsController(LiquidationReportService servic
     }
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = CashAdvancePolicies.Manage)]
     public async Task<IActionResult> Cancel(
         string name,
         CancellationToken cancellationToken)

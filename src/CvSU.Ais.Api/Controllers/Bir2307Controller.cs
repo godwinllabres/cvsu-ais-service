@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Compliance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +25,7 @@ public sealed class Bir2307Controller(Bir2307Service service) : ControllerBase
 
     /// <summary>Create a new BIR 2307 certificate in Draft status.</summary>
     [HttpPost]
+    [Authorize(Policy = CompliancePolicies.Record)]
     public async Task<ActionResult<Bir2307DetailView>> Create(
         [FromBody] CreateBir2307Command command,
         CancellationToken cancellationToken)
@@ -43,6 +45,7 @@ public sealed class Bir2307Controller(Bir2307Service service) : ControllerBase
 
     /// <summary>Approve the BIR 2307 certificate. Reviewer is the authenticated caller.</summary>
     [HttpPost("{name}/approve")]
+    [Authorize(Policy = CompliancePolicies.Approve)]
     public async Task<ActionResult<Bir2307DetailView>> Approve(string name, CancellationToken cancellationToken)
     {
         try { return Ok(await service.ApproveAsync(name, CurrentUser, cancellationToken)); }
@@ -51,6 +54,7 @@ public sealed class Bir2307Controller(Bir2307Service service) : ControllerBase
 
     /// <summary>Reject the BIR 2307 certificate. Reviewer is the authenticated caller.</summary>
     [HttpPost("{name}/reject")]
+    [Authorize(Policy = CompliancePolicies.Approve)]
     public async Task<ActionResult<Bir2307DetailView>> Reject(string name, CancellationToken cancellationToken)
     {
         try { return Ok(await service.RejectAsync(name, CurrentUser, cancellationToken)); }

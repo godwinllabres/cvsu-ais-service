@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Obligations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -36,6 +37,7 @@ public sealed class NoticeOfCashAllocationsController(NcaService svc) : Controll
     }
 
     [HttpPost]
+    [Authorize(Policy = ObligationPolicies.ManageNca)]
     public async Task<ActionResult<NcaView>> Create(CreateNcaRequest request, CancellationToken ct)
     {
         var command = new CreateNcaCommand(

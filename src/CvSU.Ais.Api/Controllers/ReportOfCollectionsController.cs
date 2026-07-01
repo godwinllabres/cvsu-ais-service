@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Collections;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +36,7 @@ public sealed class ReportOfCollectionsController(RcdService service) : Controll
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<RcdDetailView>> Create(
         CreateRcdRequest request,
         CancellationToken cancellationToken)
@@ -67,10 +69,12 @@ public sealed class ReportOfCollectionsController(RcdService service) : Controll
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/deposit")]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<RcdDetailView>> Deposit(string name, CancellationToken cancellationToken) =>
         Ok(await service.DepositAsync(name, cancellationToken));
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<RcdDetailView>> Cancel(string name, CancellationToken cancellationToken) =>
         Ok(await service.CancelAsync(name, cancellationToken));
 }

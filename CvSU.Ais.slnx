@@ -6,6 +6,7 @@
     <Project Path="src/CvSU.Ais.Infrastructure/CvSU.Ais.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/CvSU.Ais.Application.Tests/CvSU.Ais.Application.Tests.csproj" />
     <Project Path="tests/CvSU.Ais.Domain.Tests/CvSU.Ais.Domain.Tests.csproj" />
     <Project Path="tests/CvSU.Ais.Integration.Tests/CvSU.Ais.Integration.Tests.csproj" />
   </Folder>

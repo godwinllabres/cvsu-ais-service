@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.CashAdvances;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +26,7 @@ public sealed class CashAdvancesController(CashAdvanceService service) : Control
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = CashAdvancePolicies.Manage)]
     public async Task<ActionResult<CashAdvanceDetailView>> Create(
         CreateCashAdvanceRequest request,
         CancellationToken cancellationToken)
@@ -51,6 +53,7 @@ public sealed class CashAdvancesController(CashAdvanceService service) : Control
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/advance")]
+    [Authorize(Policy = CashAdvancePolicies.Disburse)]
     public async Task<IActionResult> Advance(
         string name,
         CancellationToken cancellationToken)
@@ -60,6 +63,7 @@ public sealed class CashAdvancesController(CashAdvanceService service) : Control
     }
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = CashAdvancePolicies.Manage)]
     public async Task<IActionResult> Cancel(
         string name,
         CancellationToken cancellationToken)

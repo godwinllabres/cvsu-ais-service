@@ -5,7 +5,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CvSU.Ais.Infrastructure.Repositories;
 
-public sealed class ObligationRequestRepository(AisDbContext db) : IObligationRequestRepository
+public sealed class ObligationRequestRepository(
+    AisDbContext db,
+    IVoucherNumberGenerator numbers,
+    IUnitOfWork unitOfWork) : IObligationRequestRepository
 {
     public async Task<IReadOnlyList<OrsView>> ListAsync(CancellationToken ct)
     {
@@ -53,56 +56,48 @@ public sealed class ObligationRequestRepository(AisDbContext db) : IObligationRe
             lineItems);
     }
 
-    public async Task<OrsView> AddAsync(CreateOrsCommand command, CancellationToken ct)
-    {
-        // Generate series name: ORSB-YYYY-##### using a counter approach.
-        var series = $"ORSB-{command.FiscalYear}";
-        var counter = await db.Set<VoucherCounter>()
-            .Where(c => c.Series == series)
-            .FirstOrDefaultAsync(ct);
-
-        if (counter is null)
+    public Task<OrsView> AddAsync(CreateOrsCommand command, CancellationToken ct) =>
+        // The gapless generator serializes issuers of this series via a transaction-scoped
+        // advisory lock, and the counter increment must commit or roll back together with the
+        // ORS row — so the create runs inside a single ambient transaction.
+        unitOfWork.ExecuteInTransactionAsync(async token =>
         {
-            counter = new VoucherCounter { Series = series, Current = 0 };
-            db.Add(counter);
-        }
+            var series = $"ORSB-{command.FiscalYear}";
+            var name = await numbers.NextAsync(series, token);
 
-        counter.Current++;
-        var name = $"{series}-{counter.Current:D5}";
-
-        var row = new ObligationRequestRow
-        {
-            Name = name,
-            PostingDate = command.PostingDate,
-            FiscalYear = command.FiscalYear,
-            RequestingUnit = command.RequestingUnit,
-            Purpose = command.Purpose,
-            Amount = command.Amount,
-            FundingSourceCode = command.FundingSourceCode,
-            PapCode = command.PapCode,
-            LocationCode = command.LocationCode,
-            ExpenseClass = command.ExpenseClass,
-            Status = "Draft",
-            RequestingOfficeUser = command.RequestingOfficeUser,
-            BudgetOfficerUser = command.BudgetOfficerUser,
-            Remarks = command.Remarks,
-            LineItems = command.LineItems.Select(li => new OrsLineItemRow
+            var row = new ObligationRequestRow
             {
-                Particulars = li.Particulars,
-                AllotmentId = li.AllotmentId,
-                Amount = li.Amount,
-                PapCode = li.PapCode,
-                LocationCode = li.LocationCode,
-                ExpenseClass = li.ExpenseClass,
-                Remarks = li.Remarks,
-            }).ToList(),
-        };
+                Name = name,
+                PostingDate = command.PostingDate,
+                FiscalYear = command.FiscalYear,
+                RequestingUnit = command.RequestingUnit,
+                Purpose = command.Purpose,
+                Amount = command.Amount,
+                FundingSourceCode = command.FundingSourceCode,
+                PapCode = command.PapCode,
+                LocationCode = command.LocationCode,
+                ExpenseClass = command.ExpenseClass,
+                Status = "Draft",
+                RequestingOfficeUser = command.RequestingOfficeUser,
+                BudgetOfficerUser = command.BudgetOfficerUser,
+                Remarks = command.Remarks,
+                LineItems = command.LineItems.Select(li => new OrsLineItemRow
+                {
+                    Particulars = li.Particulars,
+                    AllotmentId = li.AllotmentId,
+                    Amount = li.Amount,
+                    PapCode = li.PapCode,
+                    LocationCode = li.LocationCode,
+                    ExpenseClass = li.ExpenseClass,
+                    Remarks = li.Remarks,
+                }).ToList(),
+            };
 
-        db.Add(row);
-        await db.SaveChangesAsync(ct);
+            db.Add(row);
+            await db.SaveChangesAsync(token);
 
-        return new OrsView(row.Name, row.PostingDate, row.RequestingUnit, row.Amount, row.Status);
-    }
+            return new OrsView(row.Name, row.PostingDate, row.RequestingUnit, row.Amount, row.Status);
+        }, ct);
 
     public async Task UpdateStatusAsync(string name, string newStatus, CancellationToken ct)
     {

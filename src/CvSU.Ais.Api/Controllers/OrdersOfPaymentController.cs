@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Collections;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +24,7 @@ public sealed class OrdersOfPaymentController(OrderOfPaymentService service) : C
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<OrderOfPaymentDetailView>> Create(
         CreateOrderOfPaymentRequest request,
         CancellationToken cancellationToken)
@@ -45,10 +47,12 @@ public sealed class OrdersOfPaymentController(OrderOfPaymentService service) : C
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/issue")]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<OrderOfPaymentDetailView>> Issue(string name, CancellationToken cancellationToken) =>
         Ok(await service.IssueAsync(name, cancellationToken));
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<OrderOfPaymentDetailView>> Cancel(string name, CancellationToken cancellationToken) =>
         Ok(await service.CancelAsync(name, cancellationToken));
 }

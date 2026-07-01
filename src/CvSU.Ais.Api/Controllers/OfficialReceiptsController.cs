@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Collections;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +26,7 @@ public sealed class OfficialReceiptsController(OfficialReceiptService service) :
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<OfficialReceiptDetailView>> Create(
         CreateOfficialReceiptRequest request,
         CancellationToken cancellationToken)
@@ -49,10 +51,12 @@ public sealed class OfficialReceiptsController(OfficialReceiptService service) :
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/close")]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<OfficialReceiptDetailView>> Close(string name, CancellationToken cancellationToken) =>
         Ok(await service.CloseAsync(name, cancellationToken));
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = CollectionsPolicies.Record)]
     public async Task<ActionResult<OfficialReceiptDetailView>> Cancel(string name, CancellationToken cancellationToken) =>
         Ok(await service.CancelAsync(name, cancellationToken));
 }

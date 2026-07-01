@@ -152,6 +152,7 @@ public sealed class OrderOfPaymentService(IOrderOfPaymentRepository repo)
 /// </summary>
 public sealed class OfficialReceiptService(
     IOfficialReceiptRepository repo,
+    IOrderOfPaymentRepository orderOfPaymentRepo,
     IGeneralLedger generalLedger,
     IUnitOfWork unitOfWork)
 {
@@ -174,6 +175,23 @@ public sealed class OfficialReceiptService(
         CancellationToken cancellationToken = default) =>
         unitOfWork.ExecuteInTransactionAsync(async token =>
         {
+            // When the receipt settles a specific Order of Payment, that OP must exist,
+            // be Issued, and cover the amount being collected.
+            if (!string.IsNullOrWhiteSpace(command.OrderOfPaymentName))
+            {
+                var op = await orderOfPaymentRepo.GetAsync(command.OrderOfPaymentName, token)
+                    ?? throw new KeyNotFoundException(
+                        $"Order of Payment '{command.OrderOfPaymentName}' not found.");
+
+                if (op.Status != "Issued")
+                    throw new InvalidOperationException(
+                        $"Order of Payment '{op.Name}' is '{op.Status}'; only Issued OPs can be collected.");
+
+                if (command.AmountPaid > op.Amount)
+                    throw new ArgumentException(
+                        $"Official Receipt amount {command.AmountPaid:N2} exceeds Order of Payment '{op.Name}' amount {op.Amount:N2}.");
+            }
+
             var or = await repo.AddAsync(command, token);
 
             var amount = new Money(command.AmountPaid);

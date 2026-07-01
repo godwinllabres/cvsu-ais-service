@@ -6,10 +6,37 @@ using Microsoft.EntityFrameworkCore;
 namespace CvSU.Ais.Infrastructure.Repositories;
 
 // ---------------------------------------------------------------------------
+// Transaction helper
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// Runs a numbering-plus-insert unit of work under a database transaction so the
+/// gapless counter (advisory-locked in <see cref="Numbering.GaplessVoucherNumberService"/>)
+/// and the inserted row commit or roll back together. If the caller already opened a
+/// transaction (e.g. <c>OfficialReceiptService</c> wraps OR creation with the GL posting),
+/// that ambient transaction is reused instead of opening a nested one — the non-nesting
+/// <c>UnitOfWork</c> would otherwise throw.
+/// </summary>
+internal static class NumberedTransactionExtensions
+{
+    public static Task<T> ExecuteNumberedAsync<T>(
+        this AisDbContext db,
+        IUnitOfWork unitOfWork,
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken) =>
+        db.Database.CurrentTransaction is not null
+            ? action(cancellationToken)
+            : unitOfWork.ExecuteInTransactionAsync(action, cancellationToken);
+}
+
+// ---------------------------------------------------------------------------
 // Order of Payment
 // ---------------------------------------------------------------------------
 
-public sealed class OrderOfPaymentRepository(AisDbContext db) : IOrderOfPaymentRepository
+public sealed class OrderOfPaymentRepository(
+    AisDbContext db,
+    IVoucherNumberGenerator numbers,
+    IUnitOfWork unitOfWork) : IOrderOfPaymentRepository
 {
     public async Task<IReadOnlyList<OrderOfPaymentView>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -26,32 +53,33 @@ public sealed class OrderOfPaymentRepository(AisDbContext db) : IOrderOfPaymentR
         return row is null ? null : ToDetail(row);
     }
 
-    public async Task<OrderOfPaymentDetailView> AddAsync(
+    public Task<OrderOfPaymentDetailView> AddAsync(
         CreateOrderOfPaymentCommand command,
-        CancellationToken cancellationToken = default)
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var count = await db.Set<OrderOfPaymentRow>()
-            .CountAsync(r => r.OrderDate == today, cancellationToken);
-        var name = $"OP-{today:yyyy-MM-dd}-{count + 1:D4}";
-
-        var row = new OrderOfPaymentRow
+        CancellationToken cancellationToken = default) =>
+        // Number gaplessly against the document's own business date, inside a transaction
+        // so the advisory-locked counter increment and the inserted row commit or roll back
+        // together (F17/F26). Reuses the caller's ambient transaction when one exists.
+        db.ExecuteNumberedAsync(unitOfWork, async token =>
         {
-            Name = name,
-            OrderDate = command.OrderDate,
-            Customer = command.Customer,
-            Description = command.Description,
-            Amount = command.Amount,
-            FundCluster = command.FundCluster,
-            Status = "Draft",
-            IssuedBy = command.IssuedBy,
-            Remarks = command.Remarks,
-        };
+            var name = await numbers.NextAsync($"OP-{command.OrderDate:yyyy-MM-dd}", token);
 
-        db.Add(row);
-        await db.SaveChangesAsync(cancellationToken);
-        return ToDetail(row);
-    }
+            var row = new OrderOfPaymentRow
+            {
+                Name = name,
+                OrderDate = command.OrderDate,
+                Customer = command.Customer,
+                Description = command.Description,
+                Amount = command.Amount,
+                FundCluster = command.FundCluster,
+                Status = "Draft",
+                IssuedBy = command.IssuedBy,
+                Remarks = command.Remarks,
+            };
+
+            db.Add(row);
+            await db.SaveChangesAsync(token);
+            return ToDetail(row);
+        }, cancellationToken);
 
     public async Task<OrderOfPaymentDetailView> UpdateStatusAsync(
         string name,
@@ -75,7 +103,10 @@ public sealed class OrderOfPaymentRepository(AisDbContext db) : IOrderOfPaymentR
 // Official Receipt
 // ---------------------------------------------------------------------------
 
-public sealed class OfficialReceiptRepository(AisDbContext db) : IOfficialReceiptRepository
+public sealed class OfficialReceiptRepository(
+    AisDbContext db,
+    IVoucherNumberGenerator numbers,
+    IUnitOfWork unitOfWork) : IOfficialReceiptRepository
 {
     public async Task<IReadOnlyList<OfficialReceiptView>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -94,33 +125,33 @@ public sealed class OfficialReceiptRepository(AisDbContext db) : IOfficialReceip
         return row is null ? null : ToDetail(row);
     }
 
-    public async Task<OfficialReceiptDetailView> AddAsync(
+    public Task<OfficialReceiptDetailView> AddAsync(
         CreateOfficialReceiptCommand command,
-        CancellationToken cancellationToken = default)
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var count = await db.Set<OfficialReceiptRow>()
-            .CountAsync(r => r.PostingDate == today, cancellationToken);
-        var name = $"OR-{today:yyyy-MM-dd}-{count + 1:D4}";
-
-        var row = new OfficialReceiptRow
+        CancellationToken cancellationToken = default) =>
+        // Gapless numbering against the receipt's own posting date, inside a transaction
+        // (F17/F26). Reuses the OfficialReceiptService's ambient transaction when present.
+        db.ExecuteNumberedAsync(unitOfWork, async token =>
         {
-            Name = name,
-            OrNumber = command.OrNumber,
-            PostingDate = command.PostingDate,
-            OrderOfPaymentName = command.OrderOfPaymentName,
-            Customer = command.Customer,
-            AmountPaid = command.AmountPaid,
-            ModeOfPayment = command.ModeOfPayment,
-            FundCluster = command.FundCluster,
-            CollectionStatus = "Draft",
-            Remarks = command.Remarks,
-        };
+            var name = await numbers.NextAsync($"OR-{command.PostingDate:yyyy-MM-dd}", token);
 
-        db.Add(row);
-        await db.SaveChangesAsync(cancellationToken);
-        return ToDetail(row);
-    }
+            var row = new OfficialReceiptRow
+            {
+                Name = name,
+                OrNumber = command.OrNumber,
+                PostingDate = command.PostingDate,
+                OrderOfPaymentName = command.OrderOfPaymentName,
+                Customer = command.Customer,
+                AmountPaid = command.AmountPaid,
+                ModeOfPayment = command.ModeOfPayment,
+                FundCluster = command.FundCluster,
+                CollectionStatus = "Draft",
+                Remarks = command.Remarks,
+            };
+
+            db.Add(row);
+            await db.SaveChangesAsync(token);
+            return ToDetail(row);
+        }, cancellationToken);
 
     public async Task<OfficialReceiptDetailView> UpdateStatusAsync(
         string name,
@@ -145,7 +176,10 @@ public sealed class OfficialReceiptRepository(AisDbContext db) : IOfficialReceip
 // RCD (Report of Collections and Deposits)
 // ---------------------------------------------------------------------------
 
-public sealed class RcdRepository(AisDbContext db) : IRcdRepository
+public sealed class RcdRepository(
+    AisDbContext db,
+    IVoucherNumberGenerator numbers,
+    IUnitOfWork unitOfWork) : IRcdRepository
 {
     public async Task<IReadOnlyList<RcdView>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -163,47 +197,47 @@ public sealed class RcdRepository(AisDbContext db) : IRcdRepository
         return row is null ? null : ToDetail(row);
     }
 
-    public async Task<RcdDetailView> AddAsync(
+    public Task<RcdDetailView> AddAsync(
         CreateRcdCommand command,
-        CancellationToken cancellationToken = default)
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var count = await db.Set<ReportOfCollectionsRow>()
-            .CountAsync(r => r.ReportDate == today, cancellationToken);
-        var name = $"RCD-{today:yyyy-MM-dd}-{count + 1:D4}";
-
-        var totalCollected = command.Lines.Sum(l => l.AmountCollected);
-
-        var row = new ReportOfCollectionsRow
+        CancellationToken cancellationToken = default) =>
+        // Gapless numbering against the report's own report date, inside a transaction
+        // (F17/F26). Reuses the caller's ambient transaction when one exists.
+        db.ExecuteNumberedAsync(unitOfWork, async token =>
         {
-            Name = name,
-            ReportDate = command.ReportDate,
-            FiscalYear = command.FiscalYear,
-            FundCluster = command.FundCluster,
-            CollectingOfficer = command.CollectingOfficer,
-            DepositSlipNo = command.DepositSlipNo,
-            DepositDate = command.DepositDate,
-            DepositoryBank = command.DepositoryBank,
-            DepositAccountNumber = command.DepositAccountNumber,
-            TotalCollected = totalCollected,
-            TotalDeposited = command.TotalDeposited,
-            Status = "Draft",
-            Remarks = command.Remarks,
-            Lines = command.Lines.Select(l => new RcdLineRow
-            {
-                OfficialReceiptName = l.OfficialReceiptName,
-                OrNumber = l.OrNumber,
-                PostingDate = l.PostingDate,
-                Payor = l.Payor,
-                ModeOfPayment = l.ModeOfPayment,
-                AmountCollected = l.AmountCollected,
-            }).ToList(),
-        };
+            var name = await numbers.NextAsync($"RCD-{command.ReportDate:yyyy-MM-dd}", token);
 
-        db.Add(row);
-        await db.SaveChangesAsync(cancellationToken);
-        return ToDetail(row);
-    }
+            var totalCollected = command.Lines.Sum(l => l.AmountCollected);
+
+            var row = new ReportOfCollectionsRow
+            {
+                Name = name,
+                ReportDate = command.ReportDate,
+                FiscalYear = command.FiscalYear,
+                FundCluster = command.FundCluster,
+                CollectingOfficer = command.CollectingOfficer,
+                DepositSlipNo = command.DepositSlipNo,
+                DepositDate = command.DepositDate,
+                DepositoryBank = command.DepositoryBank,
+                DepositAccountNumber = command.DepositAccountNumber,
+                TotalCollected = totalCollected,
+                TotalDeposited = command.TotalDeposited,
+                Status = "Draft",
+                Remarks = command.Remarks,
+                Lines = command.Lines.Select(l => new RcdLineRow
+                {
+                    OfficialReceiptName = l.OfficialReceiptName,
+                    OrNumber = l.OrNumber,
+                    PostingDate = l.PostingDate,
+                    Payor = l.Payor,
+                    ModeOfPayment = l.ModeOfPayment,
+                    AmountCollected = l.AmountCollected,
+                }).ToList(),
+            };
+
+            db.Add(row);
+            await db.SaveChangesAsync(token);
+            return ToDetail(row);
+        }, cancellationToken);
 
     public async Task<RcdDetailView> UpdateStatusAsync(
         string name,

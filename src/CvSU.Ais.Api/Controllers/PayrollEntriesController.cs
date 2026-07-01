@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Payroll;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,6 +15,12 @@ public sealed class PayrollEntriesController(PayrollEntryService service) : Cont
         string PayrollPeriod,
         DateOnly PostingDate,
         string? FundCluster,
+        decimal TotalGrossPay,
+        decimal TotalTaxWithheld,
+        decimal TotalGsis,
+        decimal TotalPagibig,
+        decimal TotalPhilhealth,
+        int TotalRecords,
         IReadOnlyList<PayrollLoanDeductionDto>? LoanDeductions,
         string? Remarks);
 
@@ -22,6 +29,7 @@ public sealed class PayrollEntriesController(PayrollEntryService service) : Cont
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<ActionResult<PayrollEntryView>> Create(
         CreatePayrollEntryRequest request,
         CancellationToken cancellationToken)
@@ -31,6 +39,12 @@ public sealed class PayrollEntriesController(PayrollEntryService service) : Cont
             request.PayrollPeriod,
             request.PostingDate,
             request.FundCluster,
+            request.TotalGrossPay,
+            request.TotalTaxWithheld,
+            request.TotalGsis,
+            request.TotalPagibig,
+            request.TotalPhilhealth,
+            request.TotalRecords,
             request.LoanDeductions ?? [],
             request.Remarks);
 
@@ -43,6 +57,7 @@ public sealed class PayrollEntriesController(PayrollEntryService service) : Cont
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/validate")]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<IActionResult> Validate(string name, CancellationToken cancellationToken)
     {
         await service.ValidateAsync(name, cancellationToken);
@@ -50,6 +65,7 @@ public sealed class PayrollEntriesController(PayrollEntryService service) : Cont
     }
 
     [HttpPost("{name}/post")]
+    [Authorize(Policy = PayrollPolicies.Post)]
     public async Task<IActionResult> Post(string name, CancellationToken cancellationToken)
     {
         await service.PostAsync(name, cancellationToken);
@@ -57,6 +73,7 @@ public sealed class PayrollEntriesController(PayrollEntryService service) : Cont
     }
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<IActionResult> Cancel(string name, CancellationToken cancellationToken)
     {
         await service.CancelAsync(name, cancellationToken);

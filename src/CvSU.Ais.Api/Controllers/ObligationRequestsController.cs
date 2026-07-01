@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Obligations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -42,6 +43,7 @@ public sealed class ObligationRequestsController(ObligationRequestService svc) :
     }
 
     [HttpPost]
+    [Authorize(Policy = ObligationPolicies.Create)]
     public async Task<ActionResult<OrsView>> Create(CreateOrsRequest request, CancellationToken ct)
     {
         var command = new CreateOrsCommand(
@@ -64,6 +66,7 @@ public sealed class ObligationRequestsController(ObligationRequestService svc) :
     }
 
     [HttpPost("{name}/submit")]
+    [Authorize(Policy = ObligationPolicies.Submit)]
     public async Task<ActionResult<OrsView>> Submit(string name, CancellationToken ct)
     {
         try
@@ -77,6 +80,7 @@ public sealed class ObligationRequestsController(ObligationRequestService svc) :
     }
 
     [HttpPost("{name}/review")]
+    [Authorize(Policy = ObligationPolicies.Review)]
     public async Task<ActionResult<OrsView>> Review(string name, CancellationToken ct)
     {
         try
@@ -92,6 +96,7 @@ public sealed class ObligationRequestsController(ObligationRequestService svc) :
     public sealed record FundVerifyRequest(string AllotmentId);
 
     [HttpPost("{name}/fund-verify")]
+    [Authorize(Policy = ObligationPolicies.FundVerify)]
     public async Task<ActionResult<OrsView>> FundVerify(
         string name, [FromBody] FundVerifyRequest body, CancellationToken ct)
     {
@@ -110,6 +115,7 @@ public sealed class ObligationRequestsController(ObligationRequestService svc) :
     }
 
     [HttpPost("{name}/sign")]
+    [Authorize(Policy = ObligationPolicies.Sign)]
     public async Task<ActionResult<OrsView>> Sign(string name, CancellationToken ct)
     {
         try
@@ -123,6 +129,7 @@ public sealed class ObligationRequestsController(ObligationRequestService svc) :
     }
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = ObligationPolicies.Cancel)]
     public async Task<ActionResult<OrsView>> Cancel(string name, CancellationToken ct)
     {
         try

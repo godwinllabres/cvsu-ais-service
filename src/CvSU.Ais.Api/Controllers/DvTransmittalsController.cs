@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +24,7 @@ public sealed class DvTransmittalsController(DvTransmittalService service) : Con
         Ok(await service.ListAsync(ct));
 
     [HttpPost]
+    [Authorize(Policy = PaymentPolicies.Transmittal)]
     public async Task<ActionResult<DvTransmittalView>> Create(CreateDvTransmittalRequest request, CancellationToken ct)
     {
         var cmd = new CreateDvTransmittalCommand(
@@ -41,10 +43,12 @@ public sealed class DvTransmittalsController(DvTransmittalService service) : Con
         Ok(await service.GetAsync(name, ct));
 
     [HttpPost("{name}/transmit")]
+    [Authorize(Policy = PaymentPolicies.Transmittal)]
     public async Task<ActionResult<DvTransmittalView>> Transmit(string name, CancellationToken ct) =>
         Ok(await service.TransmitAsync(name, ct));
 
     [HttpPost("{name}/receive")]
+    [Authorize(Policy = PaymentPolicies.Transmittal)]
     public async Task<ActionResult<DvTransmittalView>> Receive(
         string name,
         ReceiveDvTransmittalRequest request,
@@ -52,6 +56,7 @@ public sealed class DvTransmittalsController(DvTransmittalService service) : Con
         Ok(await service.ReceiveAsync(name, request.ReceiverName, request.ReceivedDate, ct));
 
     [HttpPost("{name}/complete")]
+    [Authorize(Policy = PaymentPolicies.Transmittal)]
     public async Task<ActionResult<DvTransmittalView>> Complete(string name, CancellationToken ct) =>
         Ok(await service.CompleteAsync(name, ct));
 }

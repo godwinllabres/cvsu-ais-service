@@ -49,6 +49,9 @@ public sealed class CoaCaseService(ICoaCaseRepository repo)
         string generatedName,
         CancellationToken cancellationToken = default)
     {
+        if (command.Amount < 0)
+            throw new ArgumentException($"Amount must be non-negative (was {command.Amount}).");
+
         if (command.SettlementMode is not null
             && !Array.Exists(ValidSettlementModes, m => m == command.SettlementMode))
             throw new ArgumentException(
@@ -79,38 +82,52 @@ public sealed class CoaCaseService(ICoaCaseRepository repo)
 
     public async Task RecordAsync(string name, CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(name, cancellationToken);
+        await TransitionAsync(name, "Recorded", ["NdNcReceived"], cancellationToken);
         await repo.UpdateStatusAsync(name, "Recorded", cancellationToken);
     }
 
     public async Task IssueNfdAsync(string name, CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(name, cancellationToken);
+        await TransitionAsync(name, "NfdReceived", ["Recorded"], cancellationToken);
         await repo.UpdateStatusAsync(name, "NfdReceived", cancellationToken);
     }
 
     public async Task IssueCoeAsync(string name, CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(name, cancellationToken);
+        await TransitionAsync(name, "CoeIssued", ["Settled"], cancellationToken);
         await repo.UpdateStatusAsync(name, "CoeIssued", cancellationToken);
     }
 
     public async Task SettleAsync(string name, CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(name, cancellationToken);
+        await TransitionAsync(name, "Settled", ["NfdReceived", "Recorded"], cancellationToken);
         await repo.UpdateStatusAsync(name, "Settled", cancellationToken);
     }
 
     public async Task SubmitAsync(string name, CancellationToken cancellationToken = default)
     {
-        await EnsureExistsAsync(name, cancellationToken);
+        await TransitionAsync(name, "SubmittedToCoa", ["CoeIssued", "Settled"], cancellationToken);
         await repo.UpdateStatusAsync(name, "SubmittedToCoa", cancellationToken);
     }
 
-    private async Task EnsureExistsAsync(string name, CancellationToken cancellationToken)
+    /// <summary>
+    /// Loads the case and asserts its current <c>Status</c> is one of the
+    /// <paramref name="allowedFromStates"/> permitted to reach
+    /// <paramref name="targetState"/>. Rejects out-of-order transitions.
+    /// </summary>
+    private async Task TransitionAsync(
+        string name,
+        string targetState,
+        string[] allowedFromStates,
+        CancellationToken cancellationToken)
     {
-        _ = await repo.GetAsync(name, cancellationToken)
+        var detail = await repo.GetAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"COA Case '{name}' not found.");
+
+        if (!Array.Exists(allowedFromStates, s => s == detail.Status))
+            throw new InvalidOperationException(
+                $"COA Case '{name}' cannot transition to '{targetState}' from '{detail.Status}'. "
+                + $"Allowed from: {string.Join(", ", allowedFromStates)}.");
     }
 }
 
@@ -169,6 +186,11 @@ public sealed class Bir2307Service(IBir2307Repository repo)
         string generatedName,
         CancellationToken cancellationToken = default)
     {
+        if (command.GrossAmount <= 0)
+            throw new ArgumentException($"GrossAmount must be positive (was {command.GrossAmount}).");
+        if (command.EwtRate < 0)
+            throw new ArgumentException($"EwtRate must be non-negative (was {command.EwtRate}).");
+
         var ewtAmount = Math.Round(command.GrossAmount * command.EwtRate / 100m, 2);
         var netAmount = command.GrossAmount - ewtAmount;
 
@@ -201,13 +223,17 @@ public sealed class Bir2307Service(IBir2307Repository repo)
         await repo.GetAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"BIR 2307 '{name}' not found.");
 
+    /// <summary>States from which a BIR 2307 certificate may be reviewed (approved/rejected).</summary>
+    private static readonly string[] ReviewableStates = ["Draft", "ForReview"];
+
     public async Task<Bir2307DetailView> ApproveAsync(
         string name,
         string reviewedBy,
         CancellationToken cancellationToken = default)
     {
-        _ = await repo.GetAsync(name, cancellationToken)
+        var detail = await repo.GetAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"BIR 2307 '{name}' not found.");
+        EnsureReviewable(name, detail.ApprovalStatus, "Approved");
         var reviewedOn = DateTime.UtcNow;
         await repo.UpdateStatusAsync(name, "Approved", reviewedBy, reviewedOn, cancellationToken);
         return (await repo.GetAsync(name, cancellationToken))!;
@@ -218,11 +244,20 @@ public sealed class Bir2307Service(IBir2307Repository repo)
         string reviewedBy,
         CancellationToken cancellationToken = default)
     {
-        _ = await repo.GetAsync(name, cancellationToken)
+        var detail = await repo.GetAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"BIR 2307 '{name}' not found.");
+        EnsureReviewable(name, detail.ApprovalStatus, "Rejected");
         var reviewedOn = DateTime.UtcNow;
         await repo.UpdateStatusAsync(name, "Rejected", reviewedBy, reviewedOn, cancellationToken);
         return (await repo.GetAsync(name, cancellationToken))!;
+    }
+
+    private static void EnsureReviewable(string name, string currentStatus, string targetStatus)
+    {
+        if (!Array.Exists(ReviewableStates, s => s == currentStatus))
+            throw new InvalidOperationException(
+                $"BIR 2307 '{name}' cannot be set to '{targetStatus}' from '{currentStatus}'. "
+                + $"Allowed from: {string.Join(", ", ReviewableStates)}.");
     }
 }
 
@@ -302,7 +337,29 @@ public sealed class WhtStatementService(
             throw new ArgumentException(
                 $"Invalid StatementType '{command.StatementType}'. Allowed: Accrual, Remittance.");
 
-        var totalTax = command.Lines.Sum(l => l.TaxAmount);
+        if (command.GrossAmount <= 0)
+            throw new ArgumentException($"GrossAmount must be positive (was {command.GrossAmount}).");
+
+        // Recompute each line's tax from Rate * TaxBase — never trust client-supplied
+        // TaxAmount. Client values are treated as advisory and overridden if they disagree
+        // beyond the 0.01 rounding tolerance (finding F13).
+        var recomputedLines = new List<WhtLineDto>(command.Lines.Count);
+        foreach (var line in command.Lines)
+        {
+            // WhtLineDto has no gross column; TaxBase is the per-line amount subject to
+            // tax, so the F29 non-negative gross/base guard applies to TaxBase here.
+            if (line.TaxBase < 0)
+                throw new ArgumentException(
+                    $"Line TaxBase must be non-negative (was {line.TaxBase}).");
+            if (line.Rate < 0)
+                throw new ArgumentException($"Line Rate must be non-negative (was {line.Rate}).");
+
+            var recomputedTax = Math.Round(
+                line.TaxBase * line.Rate / 100m, 2, MidpointRounding.AwayFromZero);
+            recomputedLines.Add(line with { TaxAmount = recomputedTax });
+        }
+
+        var totalTax = recomputedLines.Sum(l => l.TaxAmount);
         var netAmount = command.GrossAmount - totalTax;
 
         var detail = new WhtStatementDetailView(
@@ -322,9 +379,9 @@ public sealed class WhtStatementService(
             ReviewedOn: null,
             GlPostingReference: null,
             command.Remarks,
-            command.Lines);
+            recomputedLines);
 
-        await repo.AddAsync(detail, command.Lines, cancellationToken);
+        await repo.AddAsync(detail, recomputedLines, cancellationToken);
         return detail;
     }
 
@@ -335,13 +392,17 @@ public sealed class WhtStatementService(
         await repo.GetAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"WHT Statement '{name}' not found.");
 
+    /// <summary>States from which a WHT statement may be reviewed (approved/rejected).</summary>
+    private static readonly string[] ReviewableStates = ["Draft", "ForReview"];
+
     public async Task<WhtStatementDetailView> ApproveAsync(
         string name,
         string reviewedBy,
         CancellationToken cancellationToken = default)
     {
-        _ = await repo.GetAsync(name, cancellationToken)
+        var detail = await repo.GetAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"WHT Statement '{name}' not found.");
+        EnsureReviewable(name, detail.ApprovalStatus, "Approved");
         var reviewedOn = DateTime.UtcNow;
         await repo.UpdateStatusAsync(name, "Approved", reviewedBy, reviewedOn, cancellationToken);
         return (await repo.GetAsync(name, cancellationToken))!;
@@ -352,11 +413,21 @@ public sealed class WhtStatementService(
         string reviewedBy,
         CancellationToken cancellationToken = default)
     {
-        _ = await repo.GetAsync(name, cancellationToken)
+        var detail = await repo.GetAsync(name, cancellationToken)
             ?? throw new KeyNotFoundException($"WHT Statement '{name}' not found.");
+        EnsureReviewable(name, detail.ApprovalStatus, "Rejected");
         var reviewedOn = DateTime.UtcNow;
         await repo.UpdateStatusAsync(name, "Rejected", reviewedBy, reviewedOn, cancellationToken);
         return (await repo.GetAsync(name, cancellationToken))!;
+    }
+
+    private static void EnsureReviewable(string name, string currentStatus, string targetStatus)
+    {
+        if (!Array.Exists(ReviewableStates, s => s == currentStatus))
+            throw new InvalidOperationException(
+                $"WHT Statement '{name}' cannot be set to '{targetStatus}' from '{currentStatus}'. "
+                + $"Allowed from: {string.Join(", ", ReviewableStates)}. "
+                + "A Posted statement cannot be reverted.");
     }
 
     /// <summary>
@@ -364,6 +435,14 @@ public sealed class WhtStatementService(
     /// Dr. Due to BIR / Cr. Cash–MDS Regular = TotalTaxAmount.
     /// Accrual-type statements are not posted here — they are captured via the
     /// payroll or DV GL entries that generate the original withholding.
+    /// <para>
+    /// F35: GlPostingReference is stamped with the statement's own name. The GL
+    /// append path (<see cref="IGeneralLedger.AppendBatchAsync"/>) is append-only
+    /// and returns no distinct batch/journal identifier, so there is no separate
+    /// GL id to record. Each GL entry already carries this statement name as its
+    /// source reference, so the round-trip link is preserved. This mirrors every
+    /// other posting module (Payroll, Journal Entry, Cash Advance, Collections).
+    /// </para>
     /// </summary>
     public Task<WhtStatementDetailView> PostAsync(string name, CancellationToken cancellationToken = default) =>
         unitOfWork.ExecuteInTransactionAsync(async token =>

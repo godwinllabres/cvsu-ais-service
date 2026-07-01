@@ -86,6 +86,11 @@ public sealed class JournalEntryRepository(AisDbContext db) : IJournalEntryRepos
             .FirstOrDefaultAsync(r => r.Name == name, ct)
             ?? throw new KeyNotFoundException($"Journal entry '{name}' was not found.");
 
+        // Backstop: "Posted" is terminal — never allow it to be moved backward (e.g. to "Approved").
+        if (row.ApprovalStatus == "Posted" && newStatus != "Posted")
+            throw new InvalidOperationException(
+                $"Journal entry '{name}' is already Posted and cannot transition to '{newStatus}'.");
+
         row.ApprovalStatus = newStatus;
 
         if (approvedBy is not null)

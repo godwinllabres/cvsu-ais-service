@@ -88,8 +88,17 @@ public sealed class JournalEntryService(
         return detail ?? throw new KeyNotFoundException($"Journal entry '{name}' was not found.");
     }
 
-    public Task ApproveAsync(string name, string approvedBy, CancellationToken ct = default) =>
-        repo.UpdateStatusAsync(name, "Approved", approvedBy, ct);
+    public async Task ApproveAsync(string name, string approvedBy, CancellationToken ct = default)
+    {
+        var detail = await repo.GetAsync(name, ct)
+            ?? throw new KeyNotFoundException($"Journal entry '{name}' was not found.");
+
+        if (detail.ApprovalStatus != "Draft")
+            throw new InvalidOperationException(
+                $"Journal entry '{name}' can only be approved from Draft (current: {detail.ApprovalStatus}).");
+
+        await repo.UpdateStatusAsync(name, "Approved", approvedBy, ct);
+    }
 
     /// <summary>
     /// Posts the approved JE to the accrual GL. Builds one <see cref="GeneralLedgerEntry"/>
@@ -101,6 +110,10 @@ public sealed class JournalEntryService(
         {
             var detail = await repo.GetAsync(name, token)
                 ?? throw new KeyNotFoundException($"Journal entry '{name}' was not found.");
+
+            if (detail.ApprovalStatus == "Posted" || detail.GlPostingReference != null)
+                throw new InvalidOperationException(
+                    $"Journal entry '{name}' has already been posted.");
 
             if (detail.ApprovalStatus != "Approved")
                 throw new InvalidOperationException(
@@ -127,6 +140,15 @@ public sealed class JournalEntryService(
             return 0;
         }, ct);
 
-    public Task CancelAsync(string name, CancellationToken ct = default) =>
-        repo.UpdateStatusAsync(name, "Cancelled", null, ct);
+    public async Task CancelAsync(string name, CancellationToken ct = default)
+    {
+        var detail = await repo.GetAsync(name, ct)
+            ?? throw new KeyNotFoundException($"Journal entry '{name}' was not found.");
+
+        if (detail.ApprovalStatus == "Posted")
+            throw new InvalidOperationException(
+                $"Journal entry '{name}' has already been posted and cannot be cancelled.");
+
+        await repo.UpdateStatusAsync(name, "Cancelled", null, ct);
+    }
 }

@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -25,6 +26,7 @@ public sealed class LddapAdaController(LddapAdaService service) : ControllerBase
         Ok(await service.ListAsync(ct));
 
     [HttpPost]
+    [Authorize(Policy = PaymentPolicies.LddapManage)]
     public async Task<ActionResult<LddapAdaView>> Create(CreateLddapAdaRequest request, CancellationToken ct)
     {
         var cmd = new CreateLddapAdaCommand(
@@ -45,14 +47,17 @@ public sealed class LddapAdaController(LddapAdaService service) : ControllerBase
         Ok(await service.GetAsync(name, ct));
 
     [HttpPost("{name}/approve")]
+    [Authorize(Policy = PaymentPolicies.LddapApprove)]
     public async Task<ActionResult<LddapAdaView>> Approve(string name, CancellationToken ct) =>
         Ok(await service.ApproveAsync(name, ct));
 
     [HttpPost("{name}/transmit")]
+    [Authorize(Policy = PaymentPolicies.LddapTransmit)]
     public async Task<ActionResult<LddapAdaView>> Transmit(string name, TransmitLddapAdaRequest request, CancellationToken ct) =>
         Ok(await service.TransmitAsync(name, request.TransmittedDate, ct));
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = PaymentPolicies.LddapManage)]
     public async Task<ActionResult<LddapAdaView>> Cancel(string name, CancellationToken ct) =>
         Ok(await service.CancelAsync(name, ct));
 }

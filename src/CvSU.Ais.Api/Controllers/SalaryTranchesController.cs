@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Payroll;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -23,6 +24,7 @@ public sealed class SalaryTranchesController(SalaryTrancheService service) : Con
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = PayrollPolicies.ManageTranche)]
     public async Task<ActionResult<SalaryTrancheView>> Create(
         CreateSalaryTrancheRequest request,
         CancellationToken cancellationToken)
@@ -45,6 +47,7 @@ public sealed class SalaryTranchesController(SalaryTrancheService service) : Con
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/activate")]
+    [Authorize(Policy = PayrollPolicies.ManageTranche)]
     public async Task<IActionResult> Activate(string name, CancellationToken cancellationToken)
     {
         await service.ActivateAsync(name, cancellationToken);
@@ -52,6 +55,7 @@ public sealed class SalaryTranchesController(SalaryTrancheService service) : Con
     }
 
     [HttpPost("{name}/supersede")]
+    [Authorize(Policy = PayrollPolicies.ManageTranche)]
     public async Task<IActionResult> Supersede(string name, CancellationToken cancellationToken)
     {
         await service.SupersedeAsync(name, cancellationToken);

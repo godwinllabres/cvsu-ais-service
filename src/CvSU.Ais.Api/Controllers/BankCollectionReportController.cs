@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Exports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,6 +20,7 @@ public sealed class BankCollectionReportController(BankCollectionReportService s
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = ExportPolicies.Manage)]
     public async Task<ActionResult<BankCollectionReportView>> Create(
         CreateBankCollectionReportRequest request,
         CancellationToken cancellationToken)
@@ -35,6 +37,7 @@ public sealed class BankCollectionReportController(BankCollectionReportService s
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/reconcile")]
+    [Authorize(Policy = ExportPolicies.Manage)]
     public async Task<ActionResult<BankCollectionReportView>> Reconcile(
         string name,
         CancellationToken cancellationToken) =>

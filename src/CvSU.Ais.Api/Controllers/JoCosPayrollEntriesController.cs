@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Payroll;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +25,7 @@ public sealed class JoCosPayrollEntriesController(JoCosPayrollService service) :
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<ActionResult<JoCosPayrollView>> Create(
         CreateJoCosPayrollRequest request,
         CancellationToken cancellationToken)
@@ -47,6 +49,7 @@ public sealed class JoCosPayrollEntriesController(JoCosPayrollService service) :
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/validate-hours")]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<IActionResult> ValidateHours(string name, CancellationToken cancellationToken)
     {
         await service.ValidateHoursAsync(name, cancellationToken);
@@ -54,6 +57,7 @@ public sealed class JoCosPayrollEntriesController(JoCosPayrollService service) :
     }
 
     [HttpPost("{name}/compute")]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<IActionResult> Compute(string name, CancellationToken cancellationToken)
     {
         await service.ComputeAsync(name, cancellationToken);
@@ -61,6 +65,7 @@ public sealed class JoCosPayrollEntriesController(JoCosPayrollService service) :
     }
 
     [HttpPost("{name}/approve")]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<IActionResult> Approve(string name, CancellationToken cancellationToken)
     {
         await service.ApproveAsync(name, cancellationToken);
@@ -68,6 +73,7 @@ public sealed class JoCosPayrollEntriesController(JoCosPayrollService service) :
     }
 
     [HttpPost("{name}/post")]
+    [Authorize(Policy = PayrollPolicies.Post)]
     public async Task<IActionResult> Post(string name, CancellationToken cancellationToken)
     {
         await service.PostAsync(name, cancellationToken);
@@ -75,6 +81,7 @@ public sealed class JoCosPayrollEntriesController(JoCosPayrollService service) :
     }
 
     [HttpPost("{name}/cancel")]
+    [Authorize(Policy = PayrollPolicies.Manage)]
     public async Task<IActionResult> Cancel(string name, CancellationToken cancellationToken)
     {
         await service.CancelAsync(name, cancellationToken);

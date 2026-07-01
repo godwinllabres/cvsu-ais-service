@@ -102,8 +102,55 @@ public sealed class FrappeIntrospectionAuthenticationHandler(
 
         await using var stream = await response.Content.ReadAsStreamAsync();
         using var doc = await JsonDocument.ParseAsync(stream);
-        return doc.RootElement.TryGetProperty("active", out var activeEl)
-            && activeEl.ValueKind == JsonValueKind.True;
+        var root = doc.RootElement;
+
+        // RFC 7662: an inactive token is invalid.
+        if (!(root.TryGetProperty("active", out var activeEl) && activeEl.ValueKind == JsonValueKind.True))
+            return false;
+
+        // Audience binding: a token minted for a *different* OAuth client must not be
+        // accepted by this resource server. Frappe's introspection response carries
+        // client_id (and may carry aud); when a ClientId is configured and the response
+        // actually presents an audience claim, require it to match. We do not hard-fail
+        // when the provider omits the claim entirely (that would break a working SSO for
+        // no security gain — an attacker's token would still carry its own client_id).
+        if (!string.IsNullOrWhiteSpace(Options.ClientId) && AudiencePresent(root)
+            && !AudienceMatches(root, Options.ClientId!))
+        {
+            Logger.LogWarning("Frappe introspection: token audience/client_id does not match the configured ClientId.");
+            return false;
+        }
+
+        // Reject a token whose exp has already passed, even if reported active.
+        if (root.TryGetProperty("exp", out var expEl) && expEl.TryGetInt64(out var exp)
+            && exp <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        {
+            Logger.LogWarning("Frappe introspection: token is expired.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool AudiencePresent(JsonElement root) =>
+        root.TryGetProperty("client_id", out _) || root.TryGetProperty("aud", out _);
+
+    private static bool AudienceMatches(JsonElement root, string clientId)
+    {
+        if (root.TryGetProperty("client_id", out var cid) && cid.ValueKind == JsonValueKind.String
+            && string.Equals(cid.GetString(), clientId, StringComparison.Ordinal))
+            return true;
+
+        if (root.TryGetProperty("aud", out var aud))
+        {
+            if (aud.ValueKind == JsonValueKind.String)
+                return string.Equals(aud.GetString(), clientId, StringComparison.Ordinal);
+            if (aud.ValueKind == JsonValueKind.Array)
+                return aud.EnumerateArray().Any(e => e.ValueKind == JsonValueKind.String
+                    && string.Equals(e.GetString(), clientId, StringComparison.Ordinal));
+        }
+
+        return false;
     }
 
     private async Task<(string? Email, IReadOnlyList<string> Roles)> GetUserInfoAsync(HttpClient http, string token)

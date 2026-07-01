@@ -41,6 +41,16 @@ public sealed class PayrollEntryRepository(AisDbContext db) : IPayrollEntryRepos
         var year = command.PostingDate.Year;
         var name = await NextNameAsync("PAY", year, cancellationToken);
 
+        // Persist the payroll register summary figures supplied on import so that
+        // downstream validation/posting has real totals to work with (F4).
+        var totalOtherDeductions = command.LoanDeductions.Sum(d => d.Amount);
+        var totalNetPay = command.TotalGrossPay
+            - (command.TotalTaxWithheld
+                + command.TotalGsis
+                + command.TotalPagibig
+                + command.TotalPhilhealth
+                + totalOtherDeductions);
+
         var row = new PayrollEntryRow
         {
             Name = name,
@@ -48,15 +58,15 @@ public sealed class PayrollEntryRepository(AisDbContext db) : IPayrollEntryRepos
             PayrollPeriod = command.PayrollPeriod,
             PostingDate = command.PostingDate,
             FundCluster = command.FundCluster,
-            ImportStatus = "NotImported",
-            TotalRecords = command.LoanDeductions.Count,
-            TotalGrossPay = 0m,
-            TotalNetPay = 0m,
-            TotalTaxWithheld = 0m,
-            TotalGsis = 0m,
-            TotalPagibig = 0m,
-            TotalPhilhealth = 0m,
-            TotalOtherDeductions = command.LoanDeductions.Sum(d => d.Amount),
+            ImportStatus = command.TotalGrossPay > 0m ? "Imported" : "NotImported",
+            TotalRecords = command.TotalRecords,
+            TotalGrossPay = command.TotalGrossPay,
+            TotalNetPay = totalNetPay,
+            TotalTaxWithheld = command.TotalTaxWithheld,
+            TotalGsis = command.TotalGsis,
+            TotalPagibig = command.TotalPagibig,
+            TotalPhilhealth = command.TotalPhilhealth,
+            TotalOtherDeductions = totalOtherDeductions,
             Status = "Draft",
             Remarks = command.Remarks,
             LoanDeductions = command.LoanDeductions

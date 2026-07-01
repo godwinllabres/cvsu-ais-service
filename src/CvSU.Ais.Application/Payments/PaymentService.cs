@@ -106,8 +106,28 @@ public sealed record CreateAuditIntakeCommand(
 /// <summary>Orchestrates LDDAP-ADA creation and approval-workflow transitions.</summary>
 public sealed class LddapAdaService(ILddapAdaRepository repo)
 {
-    public Task<LddapAdaView> CreateAsync(CreateLddapAdaCommand cmd, CancellationToken ct = default) =>
-        repo.AddAsync(cmd, ct);
+    // Allowed predecessor states per target — the only path status may change.
+    // "Transmitted" and "Rejected" are terminal and appear in no value list,
+    // so they can never be reverted.
+    private static readonly IReadOnlyDictionary<string, string[]> AllowedFrom =
+        new Dictionary<string, string[]>
+        {
+            ["Approved"] = ["Draft"],
+            ["Transmitted"] = ["Approved"],
+            ["Rejected"] = ["Draft", "Approved"],
+        };
+
+    public async Task<LddapAdaView> CreateAsync(CreateLddapAdaCommand cmd, CancellationToken ct = default)
+    {
+        if (!cmd.Items.Any())
+            throw new InvalidOperationException("LDDAP-ADA must have at least one item.");
+        if (cmd.Items.Any(i => i.NetAmount <= 0))
+            throw new InvalidOperationException("Each LDDAP-ADA item amount must be greater than zero.");
+        if (cmd.Items.Sum(i => i.NetAmount) <= 0)
+            throw new InvalidOperationException("LDDAP-ADA total amount must be greater than zero.");
+
+        return await repo.AddAsync(cmd, ct);
+    }
 
     public Task<IReadOnlyList<LddapAdaView>> ListAsync(CancellationToken ct = default) =>
         repo.ListAsync(ct);
@@ -120,6 +140,7 @@ public sealed class LddapAdaService(ILddapAdaRepository repo)
 
     public async Task<LddapAdaView> ApproveAsync(string name, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Approved", ct);
         await repo.UpdateStatusAsync(name, "Approved", transmittedDate: null, ct);
         var detail = await repo.GetAsync(name, ct)
             ?? throw new KeyNotFoundException($"LDDAP-ADA '{name}' not found.");
@@ -128,6 +149,7 @@ public sealed class LddapAdaService(ILddapAdaRepository repo)
 
     public async Task<LddapAdaView> TransmitAsync(string name, DateOnly transmittedDate, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Transmitted", ct);
         await repo.UpdateStatusAsync(name, "Transmitted", transmittedDate, ct);
         var detail = await repo.GetAsync(name, ct)
             ?? throw new KeyNotFoundException($"LDDAP-ADA '{name}' not found.");
@@ -136,10 +158,22 @@ public sealed class LddapAdaService(ILddapAdaRepository repo)
 
     public async Task<LddapAdaView> CancelAsync(string name, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Rejected", ct);
         await repo.UpdateStatusAsync(name, "Rejected", transmittedDate: null, ct);
         var detail = await repo.GetAsync(name, ct)
             ?? throw new KeyNotFoundException($"LDDAP-ADA '{name}' not found.");
         return ToView(detail);
+    }
+
+    private async Task EnsureLegalTransitionAsync(string name, string target, CancellationToken ct)
+    {
+        var detail = await repo.GetAsync(name, ct)
+            ?? throw new KeyNotFoundException($"LDDAP-ADA '{name}' not found.");
+        var allowed = AllowedFrom[target];
+        if (!allowed.Contains(detail.ApprovalStatus))
+            throw new InvalidOperationException(
+                $"LDDAP-ADA '{name}' cannot move to '{target}' from '{detail.ApprovalStatus}'. " +
+                $"Legal predecessor states: {string.Join(", ", allowed)}.");
     }
 
     private static LddapAdaView ToView(LddapAdaDetailView d) =>
@@ -151,8 +185,26 @@ public sealed class LddapAdaService(ILddapAdaRepository repo)
 /// <summary>Orchestrates DV Transmittal creation and status transitions.</summary>
 public sealed class DvTransmittalService(IDvTransmittalRepository repo)
 {
-    public Task<DvTransmittalView> CreateAsync(CreateDvTransmittalCommand cmd, CancellationToken ct = default) =>
-        repo.AddAsync(cmd, ct);
+    // Allowed predecessor states per target — Draft → Transmitted →
+    // ReceivedByCashier → Completed. "Completed" is terminal and appears in no
+    // value list, so a completed transmittal can never be reverted.
+    private static readonly IReadOnlyDictionary<string, string[]> AllowedFrom =
+        new Dictionary<string, string[]>
+        {
+            ["Transmitted"] = ["Draft"],
+            ["ReceivedByCashier"] = ["Transmitted"],
+            ["Completed"] = ["ReceivedByCashier"],
+        };
+
+    public async Task<DvTransmittalView> CreateAsync(CreateDvTransmittalCommand cmd, CancellationToken ct = default)
+    {
+        if (!cmd.Items.Any())
+            throw new InvalidOperationException("DV Transmittal must have at least one item.");
+        if (cmd.Items.Any(i => i.DvAmount <= 0))
+            throw new InvalidOperationException("Each DV Transmittal item amount must be greater than zero.");
+
+        return await repo.AddAsync(cmd, ct);
+    }
 
     public Task<IReadOnlyList<DvTransmittalView>> ListAsync(CancellationToken ct = default) =>
         repo.ListAsync(ct);
@@ -165,6 +217,7 @@ public sealed class DvTransmittalService(IDvTransmittalRepository repo)
 
     public async Task<DvTransmittalView> TransmitAsync(string name, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Transmitted", ct);
         await repo.UpdateStatusAsync(name, "Transmitted", receivedBy: null, receivedDate: null, ct);
         var detail = await repo.GetAsync(name, ct)
             ?? throw new KeyNotFoundException($"DV Transmittal '{name}' not found.");
@@ -173,6 +226,7 @@ public sealed class DvTransmittalService(IDvTransmittalRepository repo)
 
     public async Task<DvTransmittalView> ReceiveAsync(string name, string receiverName, DateOnly receivedDate, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "ReceivedByCashier", ct);
         await repo.UpdateStatusAsync(name, "ReceivedByCashier", receiverName, receivedDate, ct);
         var detail = await repo.GetAsync(name, ct)
             ?? throw new KeyNotFoundException($"DV Transmittal '{name}' not found.");
@@ -181,10 +235,22 @@ public sealed class DvTransmittalService(IDvTransmittalRepository repo)
 
     public async Task<DvTransmittalView> CompleteAsync(string name, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Completed", ct);
         await repo.UpdateStatusAsync(name, "Completed", receivedBy: null, receivedDate: null, ct);
         var detail = await repo.GetAsync(name, ct)
             ?? throw new KeyNotFoundException($"DV Transmittal '{name}' not found.");
         return ToView(detail);
+    }
+
+    private async Task EnsureLegalTransitionAsync(string name, string target, CancellationToken ct)
+    {
+        var detail = await repo.GetAsync(name, ct)
+            ?? throw new KeyNotFoundException($"DV Transmittal '{name}' not found.");
+        var allowed = AllowedFrom[target];
+        if (!allowed.Contains(detail.Status))
+            throw new InvalidOperationException(
+                $"DV Transmittal '{name}' cannot move to '{target}' from '{detail.Status}'. " +
+                $"Legal predecessor states: {string.Join(", ", allowed)}.");
     }
 
     private static DvTransmittalView ToView(DvTransmittalDetailView d) =>
@@ -196,8 +262,24 @@ public sealed class DvTransmittalService(IDvTransmittalRepository repo)
 /// <summary>Orchestrates Audit Intake creation and audit-lifecycle transitions.</summary>
 public sealed class AuditIntakeService(IAuditIntakeRepository repo)
 {
-    public Task<AuditIntakeView> CreateAsync(CreateAuditIntakeCommand cmd, CancellationToken ct = default) =>
-        repo.AddAsync(cmd, ct);
+    // Allowed predecessor states per target — Received → Recorded → Audited →
+    // Released. "Released" is terminal and appears in no value list, so a
+    // released intake can never be reverted.
+    private static readonly IReadOnlyDictionary<string, string[]> AllowedFrom =
+        new Dictionary<string, string[]>
+        {
+            ["Recorded"] = ["Received"],
+            ["Audited"] = ["Recorded"],
+            ["Released"] = ["Audited"],
+        };
+
+    public async Task<AuditIntakeView> CreateAsync(CreateAuditIntakeCommand cmd, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(cmd.DisbursementVoucherName))
+            throw new InvalidOperationException("Audit Intake must reference a disbursement voucher.");
+
+        return await repo.AddAsync(cmd, ct);
+    }
 
     public Task<IReadOnlyList<AuditIntakeView>> ListAsync(CancellationToken ct = default) =>
         repo.ListAsync(ct);
@@ -210,6 +292,7 @@ public sealed class AuditIntakeService(IAuditIntakeRepository repo)
 
     public async Task<AuditIntakeView> RecordAsync(string name, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Recorded", ct);
         await repo.UpdateAsync(name, "Recorded",
             auditResult: null, findings: null,
             releasedTimestamp: null, releasedTo: null, ct);
@@ -220,6 +303,7 @@ public sealed class AuditIntakeService(IAuditIntakeRepository repo)
 
     public async Task<AuditIntakeView> AuditAsync(string name, string result, string? findings, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Audited", ct);
         await repo.UpdateAsync(name, "Audited",
             auditResult: result, findings: findings,
             releasedTimestamp: null, releasedTo: null, ct);
@@ -230,12 +314,24 @@ public sealed class AuditIntakeService(IAuditIntakeRepository repo)
 
     public async Task<AuditIntakeView> ReleaseAsync(string name, string releasedTo, CancellationToken ct = default)
     {
+        await EnsureLegalTransitionAsync(name, "Released", ct);
         await repo.UpdateAsync(name, "Released",
             auditResult: null, findings: null,
             releasedTimestamp: DateTime.UtcNow, releasedTo: releasedTo, ct);
         var detail = await repo.GetAsync(name, ct)
             ?? throw new KeyNotFoundException($"Audit Intake '{name}' not found.");
         return ToView(detail);
+    }
+
+    private async Task EnsureLegalTransitionAsync(string name, string target, CancellationToken ct)
+    {
+        var detail = await repo.GetAsync(name, ct)
+            ?? throw new KeyNotFoundException($"Audit Intake '{name}' not found.");
+        var allowed = AllowedFrom[target];
+        if (!allowed.Contains(detail.Status))
+            throw new InvalidOperationException(
+                $"Audit Intake '{name}' cannot move to '{target}' from '{detail.Status}'. " +
+                $"Legal predecessor states: {string.Join(", ", allowed)}.");
     }
 
     private static AuditIntakeView ToView(AuditIntakeDetailView d) =>

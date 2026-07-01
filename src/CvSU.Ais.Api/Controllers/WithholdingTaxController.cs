@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Compliance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +25,7 @@ public sealed class WithholdingTaxController(WhtStatementService service) : Cont
 
     /// <summary>Create a new Withholding Tax Statement in Draft status.</summary>
     [HttpPost]
+    [Authorize(Policy = CompliancePolicies.Record)]
     public async Task<ActionResult<WhtStatementDetailView>> Create(
         [FromBody] CreateWhtStatementCommand command,
         CancellationToken cancellationToken)
@@ -47,6 +49,7 @@ public sealed class WithholdingTaxController(WhtStatementService service) : Cont
 
     /// <summary>Approve the statement. Reviewer is the authenticated caller.</summary>
     [HttpPost("{name}/approve")]
+    [Authorize(Policy = CompliancePolicies.Approve)]
     public async Task<ActionResult<WhtStatementDetailView>> Approve(string name, CancellationToken cancellationToken)
     {
         try { return Ok(await service.ApproveAsync(name, CurrentUser, cancellationToken)); }
@@ -55,9 +58,19 @@ public sealed class WithholdingTaxController(WhtStatementService service) : Cont
 
     /// <summary>Reject the statement. Reviewer is the authenticated caller.</summary>
     [HttpPost("{name}/reject")]
+    [Authorize(Policy = CompliancePolicies.Approve)]
     public async Task<ActionResult<WhtStatementDetailView>> Reject(string name, CancellationToken cancellationToken)
     {
         try { return Ok(await service.RejectAsync(name, CurrentUser, cancellationToken)); }
+        catch (KeyNotFoundException ex) { return NotFound(ex.Message); }
+    }
+
+    /// <summary>Post the approved statement's EWT liability to the general ledger.</summary>
+    [HttpPost("{name}/post")]
+    [Authorize(Policy = CompliancePolicies.Post)]
+    public async Task<ActionResult<WhtStatementDetailView>> Post(string name, CancellationToken cancellationToken)
+    {
+        try { return Ok(await service.PostAsync(name, cancellationToken)); }
         catch (KeyNotFoundException ex) { return NotFound(ex.Message); }
     }
 }

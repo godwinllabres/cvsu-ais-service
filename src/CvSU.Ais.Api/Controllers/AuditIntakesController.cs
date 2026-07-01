@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Payments;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,6 +23,7 @@ public sealed class AuditIntakesController(AuditIntakeService service) : Control
         Ok(await service.ListAsync(ct));
 
     [HttpPost]
+    [Authorize(Policy = PaymentPolicies.AuditIntake)]
     public async Task<ActionResult<AuditIntakeView>> Create(CreateAuditIntakeRequest request, CancellationToken ct)
     {
         var cmd = new CreateAuditIntakeCommand(
@@ -37,14 +39,17 @@ public sealed class AuditIntakesController(AuditIntakeService service) : Control
         Ok(await service.GetAsync(name, ct));
 
     [HttpPost("{name}/record")]
+    [Authorize(Policy = PaymentPolicies.AuditIntake)]
     public async Task<ActionResult<AuditIntakeView>> Record(string name, CancellationToken ct) =>
         Ok(await service.RecordAsync(name, ct));
 
     [HttpPost("{name}/audit")]
+    [Authorize(Policy = PaymentPolicies.AuditIntake)]
     public async Task<ActionResult<AuditIntakeView>> Audit(string name, AuditRequest request, CancellationToken ct) =>
         Ok(await service.AuditAsync(name, request.Result, request.Findings, ct));
 
     [HttpPost("{name}/release")]
+    [Authorize(Policy = PaymentPolicies.AuditIntake)]
     public async Task<ActionResult<AuditIntakeView>> Release(string name, ReleaseRequest request, CancellationToken ct) =>
         Ok(await service.ReleaseAsync(name, request.ReleasedTo, ct));
 }

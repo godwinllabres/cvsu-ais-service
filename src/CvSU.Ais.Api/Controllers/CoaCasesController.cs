@@ -1,3 +1,4 @@
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Compliance;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,6 +22,7 @@ public sealed class CoaCasesController(CoaCaseService service) : ControllerBase
 
     /// <summary>Open a new COA case on receipt of an ND/NC from COA.</summary>
     [HttpPost]
+    [Authorize(Policy = CompliancePolicies.Record)]
     public async Task<ActionResult<CoaCaseDetailView>> Create(
         [FromBody] CreateCoaCaseCommand command,
         CancellationToken cancellationToken)
@@ -40,6 +42,7 @@ public sealed class CoaCasesController(CoaCaseService service) : ControllerBase
 
     /// <summary>Mark the case as Recorded in the internal register.</summary>
     [HttpPost("{name}/record")]
+    [Authorize(Policy = CompliancePolicies.Record)]
     public async Task<IActionResult> Record(string name, CancellationToken cancellationToken)
     {
         try { await service.RecordAsync(name, cancellationToken); return NoContent(); }
@@ -48,6 +51,7 @@ public sealed class CoaCasesController(CoaCaseService service) : ControllerBase
 
     /// <summary>Record receipt of the Notice of Final Decision (NFD).</summary>
     [HttpPost("{name}/issue-nfd")]
+    [Authorize(Policy = CompliancePolicies.Approve)]
     public async Task<IActionResult> IssueNfd(string name, CancellationToken cancellationToken)
     {
         try { await service.IssueNfdAsync(name, cancellationToken); return NoContent(); }
@@ -56,6 +60,7 @@ public sealed class CoaCasesController(CoaCaseService service) : ControllerBase
 
     /// <summary>Issue the Certificate of Exemption (COE) to the liable party.</summary>
     [HttpPost("{name}/issue-coe")]
+    [Authorize(Policy = CompliancePolicies.Approve)]
     public async Task<IActionResult> IssueCoe(string name, CancellationToken cancellationToken)
     {
         try { await service.IssueCoeAsync(name, cancellationToken); return NoContent(); }
@@ -64,6 +69,7 @@ public sealed class CoaCasesController(CoaCaseService service) : ControllerBase
 
     /// <summary>Mark the case as Settled after payment or payroll deduction.</summary>
     [HttpPost("{name}/settle")]
+    [Authorize(Policy = CompliancePolicies.Settle)]
     public async Task<IActionResult> Settle(string name, CancellationToken cancellationToken)
     {
         try { await service.SettleAsync(name, cancellationToken); return NoContent(); }
@@ -72,6 +78,7 @@ public sealed class CoaCasesController(CoaCaseService service) : ControllerBase
 
     /// <summary>Submit the settled case back to COA.</summary>
     [HttpPost("{name}/submit")]
+    [Authorize(Policy = CompliancePolicies.Approve)]
     public async Task<IActionResult> Submit(string name, CancellationToken cancellationToken)
     {
         try { await service.SubmitAsync(name, cancellationToken); return NoContent(); }

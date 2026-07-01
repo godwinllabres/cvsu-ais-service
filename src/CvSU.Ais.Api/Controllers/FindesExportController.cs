@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CvSU.Ais.Api.Auth;
 using CvSU.Ais.Application.Exports;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,6 +21,7 @@ public sealed class FindesExportController(FindesExportService service) : Contro
         Ok(await service.ListAsync(cancellationToken));
 
     [HttpPost]
+    [Authorize(Policy = ExportPolicies.Manage)]
     public async Task<ActionResult<FindesExportView>> Create(
         CreateFindesExportRequest request,
         CancellationToken cancellationToken)
@@ -34,14 +36,17 @@ public sealed class FindesExportController(FindesExportService service) : Contro
         Ok(await service.GetAsync(name, cancellationToken));
 
     [HttpPost("{name}/approve")]
+    [Authorize(Policy = ExportPolicies.Manage)]
     public async Task<ActionResult<FindesExportView>> Approve(string name, CancellationToken cancellationToken) =>
         Ok(await service.ApproveAsync(name, CurrentUser, cancellationToken));
 
     [HttpPost("{name}/export")]
+    [Authorize(Policy = ExportPolicies.Manage)]
     public async Task<ActionResult<FindesExportView>> Export(string name, CancellationToken cancellationToken) =>
         Ok(await service.ExportAsync(name, CurrentUser, cancellationToken));
 
     [HttpPost("{name}/reject")]
+    [Authorize(Policy = ExportPolicies.Manage)]
     public async Task<ActionResult<FindesExportView>> Reject(string name, CancellationToken cancellationToken) =>
         Ok(await service.RejectAsync(name, cancellationToken));
 

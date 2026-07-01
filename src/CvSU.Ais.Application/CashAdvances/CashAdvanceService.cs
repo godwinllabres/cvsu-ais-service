@@ -92,8 +92,13 @@ public sealed class CashAdvanceService(
 
     public async Task<string> CreateAsync(
         CreateCashAdvanceCommand command,
-        CancellationToken cancellationToken = default) =>
-        await repo.AddAsync(command, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        if (command.AdvanceAmount <= 0m)
+            throw new ArgumentException("Cash advance amount must be greater than zero.", nameof(command));
+
+        return await repo.AddAsync(command, cancellationToken);
+    }
 
     public Task<IReadOnlyList<CashAdvanceView>> ListAsync(
         CancellationToken cancellationToken = default) =>
@@ -160,6 +165,7 @@ public sealed class CashAdvanceService(
 /// </summary>
 public sealed class LiquidationReportService(
     ILiquidationReportRepository repo,
+    ICashAdvanceRepository cashAdvanceRepo,
     IGeneralLedger generalLedger,
     IUnitOfWork unitOfWork)
 {
@@ -216,6 +222,23 @@ public sealed class LiquidationReportService(
                 throw new InvalidOperationException(
                     $"Cannot post '{name}' from status '{detail.Status}'; expected Submitted.");
 
+            // Load the parent cash advance and guard against double-liquidation (F18):
+            // it must currently be Advanced (not already FullyLiquidated/Settled), otherwise
+            // a second liquidation post would credit Advances to SDO more than once.
+            var parent = await cashAdvanceRepo.GetAsync(detail.CashAdvanceName, token)
+                ?? throw new KeyNotFoundException(
+                    $"Cash advance '{detail.CashAdvanceName}' not found.");
+
+            if (parent.Status != "Advanced")
+                throw new InvalidOperationException(
+                    $"Cash advance '{detail.CashAdvanceName}' must be Advanced to liquidate " +
+                    $"(current: {parent.Status}); it may already be liquidated or settled.");
+
+            if (detail.TotalLiquidated > parent.AdvanceAmount)
+                throw new InvalidOperationException(
+                    $"Liquidation total ({detail.TotalLiquidated:N2}) exceeds the cash advance " +
+                    $"amount ({parent.AdvanceAmount:N2}).");
+
             var today = DateOnly.FromDateTime(DateTime.UtcNow);
             var fiscalYear = today.Year;
             var advance = new Money(detail.AdvanceAmount);
@@ -257,6 +280,12 @@ public sealed class LiquidationReportService(
             await generalLedger.AppendBatchAsync(batch, token);
             await repo.SetGlReferenceAsync(name, name, token);
             await repo.UpdateCashAdvanceLiquidatedAsync(detail.CashAdvanceName, detail.TotalLiquidated, token);
+
+            // Settle the parent so a second liquidation post is rejected (F18). The full
+            // advance receivable was just credited, so the advance is now liquidated even
+            // when the documented expenses are less than the advance amount.
+            await cashAdvanceRepo.UpdateStatusAsync(detail.CashAdvanceName, "FullyLiquidated", token);
+
             await repo.UpdateStatusAsync(name, "Posted", token);
             return 0;
         }, cancellationToken);
